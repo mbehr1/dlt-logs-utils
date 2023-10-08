@@ -26,6 +26,17 @@ describe('TL', () => {
       expect(tl.persistLcs).to.be.undefined
     })
 
+    it('should remove invalid chars from group name', () => {
+      const tl = new TL('||__group|_,:;_//\\', 'lane1', 'value1')
+      expect(tl.group).to.equal('group')
+    })
+
+    it('should remove invalid chars from group name', () => {
+      const tl = new TL('group1', '||__lane|_,:;_//\\', 'value1')
+      expect(tl.lane).to.equal('__lane__')
+    })
+
+
     it('should have only one enumeratable property', () => {
       const tl = new TL('group1', 'lane1', 123)
       expect(Object.keys(tl).length).to.equal(1)
