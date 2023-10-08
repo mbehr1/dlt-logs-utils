@@ -1,10 +1,23 @@
 {
-  "name":"dlt-logs-utils",
-  "version":"0.0.1",
-  "description":"Utils for DLT-Logs VS-Code extension",
-  "main":"dist/index.js",
-  "types":"dist/index.d.ts",
-  "files":[
+  "name": "dlt-logs-utils",
+  "version": "0.0.1",
+  "license": "MIT",
+  "description": "Utils for DLT-Logs VS-Code extension",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
     "/dist"
-  ]
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "mocha -r ts-node/register src/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.6",
+    "@types/mocha": "^10.0.2",
+    "chai": "^4.3.10",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
 }
