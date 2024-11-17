@@ -1,6 +1,6 @@
 {
   "name": "dlt-logs-utils",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Utils for DLT-Logs VS-Code extension",
   "main": "dist/index.js",
@@ -10,10 +10,27 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "mocha --require ts-node/register --extensions ts,tsx src/**/*.test.ts"
+    "test": "mocha"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./sequence": {
+      "import": "./dist/sequence.js",
+      "require": "./dist/sequence.js",
+      "types": "./dist/sequence.d.ts"
+    },
+    "./restQuery": {
+      "import": "./dist/restQuery.js",
+      "require": "./dist/restQuery.js",
+      "types": "./dist/restQuery.d.ts"
+    }
   },
   "devDependencies": {
     "@types/chai": "^4.3.16",
+    "@types/mdast": "^4.0.4",
     "@types/mocha": "^10.0.7",
     "chai": "4.4.1",
     "mocha": "^10.7.0",
