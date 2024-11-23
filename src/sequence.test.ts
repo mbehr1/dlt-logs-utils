@@ -6,6 +6,7 @@ import {
   FBSequence,
   FbSequenceResult,
   FilterableDltMsg,
+  getCaptures,
   SeqChecker,
   seqResultToMdAst,
   ViewableDltMsg,
@@ -21,13 +22,13 @@ describe('FbEvent', () => {
     expect(ev).to.have.property('evType')
 
     // and FbSeqOccurrence does not include evType
-    const so: FbSeqOccurrence = new FbSeqOccurrence(0, ev, 'ok', [], [])
+    const so: FbSeqOccurrence = new FbSeqOccurrence(0, ev, 'ok', [], [], [])
     expect(so).to.not.have.property('evType')
     expect(so).to.be.instanceOf(FbSeqOccurrence)
   })
 })
 
-describe.only('SeqChecker', () => {
+describe('SeqChecker', () => {
   // a few filter:
   const f1 = new DltFilter({ type: 3, apid: '1' })
   const f2 = new DltFilter({ type: 3, apid: '2' })
@@ -308,4 +309,19 @@ describe.only('SeqChecker', () => {
   })
 
   // todo check for sub-sequences being out of order
+})
+
+describe('getCaptures', () => {
+  it('should return the capture groups for a regex', () => {
+    // const re = /(?<g2>\d+)-(?<$g1>\d+)/
+    const re = new RegExp('(?<g2>\\d+)-(?<_g1>\\d+)', 'i')
+    const str = '123-456'
+    const captures = getCaptures(re, str)
+    expect(captures).to.not.be.undefined
+    expect(captures).to.include.keys('_g1', 'g2')
+    expect(captures).to.not.include.keys('toString')
+    expect(captures!['_g1']).to.equal('456')
+    expect(captures!.g2).to.equal('123')
+    expect(Object.keys(captures!)).to.have.lengthOf(2)
+  })
 })

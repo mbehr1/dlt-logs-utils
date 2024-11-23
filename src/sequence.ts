@@ -4,8 +4,8 @@
 // [] - add support for parallel steps (so non sequential)
 // [] - add support for lifecycles (a step can expect to be in a certain lifecycle)
 // [] - add support for steps returning a warning
-// [] - add support for context values for reporting
-// [] - add support for context values to match a later step (e.g. for identifiers to match the right status/end...)
+// [x] - add support for context values for reporting
+// [x] - add support for context values to match a later step (e.g. for identifiers to match the right status/end...) (starting with _)
 
 import { Html, RootContent, TableCell, TableRow } from 'mdast'
 
@@ -465,6 +465,11 @@ export class FbSeqOccurrence {
     public result: string,
     public failures: string[],
     public stepsResult: StepResult[],
+    /**
+     * context values captured (e.g. ids, filenames,...) as key/value pairs
+     * Sorted by capture order thus an array and not an object
+     */
+    public context: [string, string][],
   ) {}
 
   //instance: number
@@ -616,6 +621,9 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
                     if (r.failures.length > 0) {
                       msg += `<br>${r.failures.length} failures:<br>${r.failures.join('<br>')}`
                     }
+                    if (r.context.length > 0) {
+                      msg += `<br>${r.context.map(([name, value]) => `${name}: ${value}`).join('<br>')}`
+                    }
                     msg += `</td>`
                     return msg
                   } else {
@@ -641,42 +649,8 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
         : '', // todo the persistent id is not the one from adlt convert if adlt is started locally and port is used.
       occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '<notime>',
       typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
+      occ.context.length > 0 ? occ.context.map(([name, value]) => `${name}: ${value}`).join('<br>') : '', // todo html encode! e.g. using https://github.com/component/escape-html/blob/master/index.js
       stepsAsHtml(occ.stepsResult, seqResult.sequence),
-      /*asCollapsable(
-        stepsSummary,
-        asHtmlTable(
-          ['', '#', 'name', 'result', 'msg'],
-          occ.stepsResult
-            .map((res, stepIdx) => {
-              if (res.length === 0) {
-                return `<td>✔️</td><td>${stepIdx + 1}</td><td>${nameFromStep(seqResult.sequence.steps[stepIdx], '')}</td><td></td><td></td>`
-              } else {
-                return res.map((r) => {
-                  if (r instanceof FbSeqOccurrence) {
-                    let msg = `<td>${resAsEmoji(r.result)}</td><td>${stepIdx + 1}</td><td>${nameFromStep(
-                      seqResult.sequence.steps[stepIdx],
-                      '',
-                    )}</td><td>${r.result}</td><td>${r.startEvent.msgText ? r.startEvent.msgText : 'todo! r.title?'}`
-                    // todo add summary for r.stepsResult (incl. recursive... sequences)
-                    // summary the graphical overview of the steps and in next line the startEvent.msgText
-
-                    if (r.failures.length > 0) {
-                      msg += `<br>${r.failures.length} failures:<br>${r.failures.join('<br>')}`
-                    }
-                    msg += `</td>`
-                    return msg
-                  } else {
-                    return `<td>${resAsEmoji(r.summary)}</td><td>${stepIdx + 1}</td><td>${nameFromStep(
-                      seqResult.sequence.steps[stepIdx],
-                      '',
-                    )}</td><td>${r.summary}</td><td>${r.msgText ? r.msgText : r.title}</td>`
-                  }
-                })
-              }
-            })
-            .flat(),
-        ).value,
-      ),*/
       occ.failures.length > 0 ? occ.failures.join('\n') : '',
     ])
   }
@@ -684,7 +658,7 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
   const seqOccurrencesAsTableRows: TableRow[] = seqResult.occurrences ? seqResult.occurrences.map(seqOccurrenceAsTableRow) : []
   resultAsMd.push({
     type: 'table',
-    align: ['left', 'right', 'right', 'left', 'left', 'left', 'left'],
+    align: ['left', 'right', 'right', 'left', 'left', 'left', 'left', 'left'],
     children: [
       asTableRow([
         '',
@@ -700,6 +674,7 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
             .find((part) => part.type === 'timeZoneName')?.value || 'UTC'
         })`,
         'Result',
+        'Context',
         'Steps',
         'Failures',
       ]),
@@ -761,11 +736,13 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
 
   stepsResult: Map<SeqStep<DltFilterType>, FbEvent[] | SeqOccurrence<DltFilterType>[]> // summary field contains the result of the step as "ok", "warning", "error", "undefined"
   failures: string[]
+  context: Map<string, string> // context values for reporting, context values starting with _ can be set just once and then later on need to match
   maxStepNr: number // the max stepNr of the executed steps
 
   constructor(public instance: number, public startEvent: FbEvent, private steps: SeqStep<DltFilterType>[]) {
     this.stepsResult = new Map()
     this.failures = []
+    this.context = new Map()
     this.maxStepNr = 0
   }
 
@@ -806,6 +783,7 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
           return stepRes
         }
       }),
+      Array.from(this.context.entries()),
     )
   }
 
@@ -863,6 +841,19 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
 
 interface IDltFilter {
   matches(msg: FilterableDltMsg): boolean
+  /**
+   * the regex is used to get capture groups besides being part of the filter
+   */
+  payloadRegex: RegExp | undefined
+}
+
+export const getCaptures = (regex: RegExp, payloadString: string) => {
+  const matches = regex.exec(payloadString)
+  if (matches === null) {
+    return undefined
+  } else {
+    return matches.groups
+  }
 }
 
 class SeqStep<DltFilterType extends IDltFilter> {
@@ -1066,16 +1057,31 @@ class SeqStep<DltFilterType extends IDltFilter> {
       let errorText: string | undefined = undefined
       if (curSeqOcc.maxStepNr > this.stepNr) {
         errorText = `step #${this.stepPrefix}${this.stepNr} out of order (maxStepNr=${curSeqOcc.maxStepNr})`
-      } else {
-        if (this.maxOcc !== undefined) {
-          // check cardinality:
-          const curOcc = curValues.length
-          if (curOcc >= this.maxOcc) {
-            // fail this step:
-            curValues.push(this.eventFromMsg(msg, 'error'))
-            curSeqOcc.failures.push(`step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`)
-            errorText = `step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`
+      } else if (this.maxOcc !== undefined) {
+        // check cardinality:
+        const curOcc = curValues.length
+        if (curOcc >= this.maxOcc) {
+          // fail this step:
+          curValues.push(this.eventFromMsg(msg, 'error'))
+          curSeqOcc.failures.push(`step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`)
+          errorText = `step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`
+        }
+      }
+
+      // any captures?
+      const captures =
+        errorText === undefined && this.filter.payloadRegex ? getCaptures(this.filter.payloadRegex, msg.payloadString) : undefined
+      if (captures !== undefined) {
+        // fail this step with error if any capture with name "_..." has already been set with a different value
+        for (const [key, value] of Object.entries(captures)) {
+          const curCtxt = curSeqOcc.context.get(key)
+          if (curCtxt !== undefined && curCtxt !== value) {
+            if (key.startsWith('_')) {
+              errorText = `step #${this.stepPrefix}${this.stepNr} context '${key}' already set with different value ('${curCtxt}' != '${value}')`
+              break
+            }
           }
+          curSeqOcc.context.set(key, value)
         }
       }
       if (errorText !== undefined) {
