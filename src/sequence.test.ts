@@ -153,6 +153,77 @@ describe('SeqChecker', () => {
     expect(seqResult.occurrences[1].result).to.equal('ok')
   })
 
+  it('should detect a sequence with repeating filter', () => {
+    let jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, s1],
+    }
+    let msgs = [m1, m1]
+
+    let seqResult = processMsgs(jsonSeq, msgs)
+    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [o3_0_m, s1, s3], // m*m <- we cannot but m*nm
+    }
+    msgs = [m3, m1, m3] // [m3, m3, m1, m3]
+
+    seqResult = processMsgs(jsonSeq, msgs)
+    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [o3_0_m, s1, s3], //m*nm
+    }
+    msgs = [m3, m3, m1, m3]
+
+    seqResult = processMsgs(jsonSeq, msgs)
+    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [o3_0_m, s1, s2], //m*ns
+    }
+    msgs = [m3, m1, m3, m2] // invalid! as 2nd m3 is out of sequence -> should be two occurrences m3,m1 and m3,m2 (both errors)
+
+    seqResult = processMsgs(jsonSeq, msgs)
+    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(2)
+    expect(seqResult.occurrences[0].result).to.equal('error')
+
+    // sub-sequences with optional steps
+    jsonSeq = {
+      name: 'seq1',
+      steps: [{ sequence: { name: 'sub seq 1', steps: [s1, s1] } }, { sequence: { name: 'sub seq 1.2', steps: [s1, s1] } }], // mm
+    }
+    msgs = [m1, m1, m1, m1]
+    seqResult = processMsgs(jsonSeq, msgs)
+    console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+  })
+
+  it('should handle sequences starting with an optional step', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [o3_0_1, s2, o3_0_1],
+    }
+    const msgs = [m3, m2, m2]
+
+    const seqResult = processMsgs(jsonSeq, msgs)
+    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(2)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+    expect(seqResult.occurrences[1].result).to.equal('ok')
+  })
+
   it('should detect a sequence with optional steps', () => {
     let jsonSeq: FBSequence = {
       name: 'seq1',
@@ -217,12 +288,22 @@ describe('SeqChecker', () => {
   })
 
   it('should support sub-sequences', () => {
-    const jsonSeq: FBSequence = {
+    let jsonSeq: FBSequence = {
       name: 'seq1',
       steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] } }, s2],
     }
-    const msgs = [m1, m3, m4, m2]
-    const seqResult = processMsgs(jsonSeq, msgs)
+    let msgs = [m1, m3, m4, m2]
+    let seqResult = processMsgs(jsonSeq, msgs)
+    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [{ sequence: { name: 'sub seq 1', steps: [s3, s4] } }],
+    }
+    msgs = [m3, m4]
+    seqResult = processMsgs(jsonSeq, msgs)
     //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
     expect(seqResult.occurrences).to.have.lengthOf(1)
     expect(seqResult.occurrences[0].result).to.equal('ok')

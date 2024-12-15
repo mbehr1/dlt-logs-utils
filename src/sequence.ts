@@ -757,7 +757,16 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
     const lastMandatoryStep = this.steps.findLast((step) => step.isMandatory())
     if (lastMandatoryStep !== undefined) {
       const lastResult = this.stepsResult.get(lastMandatoryStep)
-      return lastResult !== undefined
+      // if the last is a sequence only finish once the sequence is finished
+      if (lastMandatoryStep.sequence) {
+        return (
+          lastResult !== undefined &&
+          lastResult.length > 0 &&
+          (lastResult[lastResult.length - 1] as SeqOccurrence<DltFilterType>).isFinished()
+        )
+      } else {
+        return lastResult !== undefined
+      }
     }
     // no mandatory step found???
     throw 'no mandatory step found in sequence'
@@ -1186,7 +1195,71 @@ export class Sequence<DltFilterType extends IDltFilter> {
         }
       }
     }
-    for (const step of this.steps) {
+    // select the next step to check for a match:
+    // prefer "good" sequences
+    // the problem is mainly for msgs that match multiple steps.
+    // this is like regex matching and thus might be complex (e.g. m*m would match to m but is difficult to detect sequentially).
+    // So do simple rules:
+    // We want to support: mm (2 steps filter for m)
+    // We want to support: m*nm <- depends on whether n was matched yet. e.g. mnm, mmnm, nm are ok.
+    // m*ns <- should fail on mnms but mmns
+
+    // so we start with:
+    //  - last matched step if it allows for more matches
+    //  - next step if the last matched step does not allow for more matches
+
+    // if none matched yet, we start with the first step
+
+    // determine the last matched step:
+    let lastMatchedStep: number = -1
+    if (startedSeqOccurrence !== undefined) {
+      // find the last step that was matched
+      lastMatchedStep = this.steps.findLastIndex((step) => startedSeqOccurrence.stepsResult.get(step) !== undefined)
+    }
+    if (lastMatchedStep >= 0) {
+      const allowsMoreMatches = (step: SeqStep<DltFilterType>) => {
+        const stepRes = startedSeqOccurrence.stepsResult.get(step)
+        if (step.sequence !== undefined) {
+          console.log(`sequence step for ${step.sequence.name}`)
+          if (step.maxOcc === undefined || stepRes.length < step.maxOcc) {
+            console.log(` sequence step for ${step.sequence.name} undefined or less than maxOcc`)
+            return true
+          }
+          if (stepRes.length === step.maxOcc) {
+            const lastSeqOcc = stepRes[stepRes.length - 1] as SeqOccurrence<DltFilterType>
+            console.log(` sequence step for ${step.sequence.name} === maxOcc, isFinished=${lastSeqOcc.isFinished()}`)
+            return !lastSeqOcc.isFinished()
+          }
+        } else {
+          if (stepRes !== undefined && (lastMatchedStepObj.maxOcc === undefined || stepRes.length < lastMatchedStepObj.maxOcc)) {
+            return true
+          }
+        }
+        return false
+      }
+
+      // does this step allow for more matches?
+      const lastMatchedStepObj = this.steps[lastMatchedStep]
+      if (allowsMoreMatches(lastMatchedStepObj)) {
+        // continue with this step
+      } else {
+        // next one
+        if (lastMatchedStep < this.steps.length - 1) {
+          lastMatchedStep += 1
+        } else {
+          // todo which one here? we start with the first one
+          lastMatchedStep = 0
+        }
+      }
+    }
+    if (lastMatchedStep < 0) {
+      lastMatchedStep = 0
+    }
+
+    const stepSearchArray =
+      lastMatchedStep > 0 ? [...this.steps.slice(lastMatchedStep), ...this.steps.slice(0, lastMatchedStep)] : this.steps
+
+    for (const step of stepSearchArray) {
       const [stepUpdated, newOcc] = step.processMsg(msg, startedSeqOccurrence, seqResult, newOccurrence)
       if (stepUpdated) {
         updated = true
@@ -1207,6 +1280,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
             startedSeqOccurrence = undefined
           }
         }
+        break // only one step per msg
       } // TODO break for after an update? or shall we let a msg update multiple steps?
     }
     return [updated, startedSeqOccurrence]
