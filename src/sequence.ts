@@ -1207,6 +1207,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
             startedSeqOccurrence = undefined
           }
         }
+        break // only one step per msg
       } // TODO break for after an update? or shall we let a msg update multiple steps?
     }
     return [updated, startedSeqOccurrence]
