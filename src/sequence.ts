@@ -416,6 +416,7 @@ export interface FBSequence {
   failures?: Record<string, Filter>
 }
 
+// #region FBSeqStep
 export interface FBSeqStep {
   /**
    * either a filter or sequence is needed!
@@ -430,6 +431,12 @@ export interface FBSeqStep {
    * cardinality as a regex quanitifier: ? | * | + | {n} | {n,} | {n,m}
    */
   card?: string
+  /**
+   * canCreateNew: boolean // if true, a new instance of the sequence can be created due to this step
+   *
+   * Defaults to true (if not provided)
+   */
+  canCreateNew?: boolean
 }
 
 export const nameFromStep = (step: FBSeqStep, defaultName: string): string => {
@@ -864,7 +871,7 @@ export const getCaptures = (regex: RegExp, payloadString: string) => {
     return matches.groups
   }
 }
-
+// #region SeqStep
 class SeqStep<DltFilterType extends IDltFilter> {
   public filter?: IDltFilter
   public sequence?: Sequence<DltFilterType>
@@ -927,6 +934,10 @@ class SeqStep<DltFilterType extends IDltFilter> {
     return this.minOcc > 0
   }
 
+  get canCreateNew(): boolean {
+    return this.jsonStep.canCreateNew != false
+  }
+
   eventFromMsg(msg: ViewableDltMsg, result: string): FbEvent {
     return {
       evType: 'step',
@@ -953,6 +964,9 @@ class SeqStep<DltFilterType extends IDltFilter> {
     seqResult: FbSequenceResult,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
+    if (curSeqOcc === undefined && !this.canCreateNew) {
+      return [false, curSeqOcc]
+    }
     if (this.sequence !== undefined) {
       let curValues: SeqOccurrence<DltFilterType>[] | undefined = curSeqOcc?.stepsResult.get(this) as
         | SeqOccurrence<DltFilterType>[]
@@ -1027,12 +1041,6 @@ class SeqStep<DltFilterType extends IDltFilter> {
           // TODO How to return? curValues.push(this.eventFromMsg(msg, 'error'))
           curSeqOcc.failures.push(errorText)
           // pass this msgs to new sequence occurrence (TODO: as well for sub-sequences?)
-          // todo create a new one? rethink... whether sub-sequences should start new seq. curSeqOcc = newOccurrence(msg, this)
-          /*const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, newOccurrence)
-          if (newUpdated) {
-            // in this case the log "...finished by ..." would be missing! TODO... move this log to here?
-            curSeqOcc = newOcc
-          }*/
           return [true, curSeqOcc]
         }
 
@@ -1045,7 +1053,6 @@ class SeqStep<DltFilterType extends IDltFilter> {
       }
     } else if (this.filter.matches(msg)) {
       if (curSeqOcc === undefined) {
-        // for now simply if we do match... TODO: on first mandatory step only?
         // start a new sequence occurrence
         curSeqOcc = newOccurrence(msg, this)
       }
@@ -1097,11 +1104,13 @@ class SeqStep<DltFilterType extends IDltFilter> {
         curValues.push(this.eventFromMsg(msg, 'error'))
         curSeqOcc.failures.push(errorText)
         // pass this msgs to new sequence occurrence
-        curSeqOcc = newOccurrence(msg, this)
-        const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, newOccurrence)
-        if (newUpdated) {
-          // in this case the log "...finished by ..." would be missing! TODO... move this log to here?
-          curSeqOcc = newOcc
+        if (this.canCreateNew) {
+          curSeqOcc = newOccurrence(msg, this)
+          const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, newOccurrence)
+          if (newUpdated) {
+            // in this case the log "...finished by ..." would be missing! TODO... move this log to here?
+            curSeqOcc = newOcc
+          }
         }
         return [true, curSeqOcc]
       }
@@ -1154,6 +1163,10 @@ export class Sequence<DltFilterType extends IDltFilter> {
     }
     for (const [idx, step] of this.jsonSeq.steps.entries()) {
       this.steps.push(new SeqStep<DltFilterType>(this.stepPrefix, idx + 1, step, DltFilterConstructor))
+    }
+
+    if (this.steps.length > 0 && !this.steps[0].canCreateNew) {
+      throw new Error(`SeqChecker: start step for sequence '${this.jsonSeq.name}' must have attribute canCreateNew`)
     }
 
     this.failureFilters = Object.entries(this.jsonSeq.failures || {}).map(([failureName, filter]) => [
@@ -1220,14 +1233,11 @@ export class Sequence<DltFilterType extends IDltFilter> {
       const allowsMoreMatches = (step: SeqStep<DltFilterType>) => {
         const stepRes = startedSeqOccurrence.stepsResult.get(step)
         if (step.sequence !== undefined) {
-          console.log(`sequence step for ${step.sequence.name}`)
           if (step.maxOcc === undefined || stepRes.length < step.maxOcc) {
-            console.log(` sequence step for ${step.sequence.name} undefined or less than maxOcc`)
             return true
           }
           if (stepRes.length === step.maxOcc) {
             const lastSeqOcc = stepRes[stepRes.length - 1] as SeqOccurrence<DltFilterType>
-            console.log(` sequence step for ${step.sequence.name} === maxOcc, isFinished=${lastSeqOcc.isFinished()}`)
             return !lastSeqOcc.isFinished()
           }
         } else {

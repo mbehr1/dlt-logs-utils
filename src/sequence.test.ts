@@ -153,6 +153,38 @@ describe('SeqChecker', () => {
     expect(seqResult.occurrences[1].result).to.equal('ok')
   })
 
+  it('should not detect a start of a partial sequence with steps canCreateNew:false', () => {
+    let jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, { canCreateNew: false, ...s2 }],
+    }
+    let msgs = [m2, m1, m2]
+
+    let seqResult = processMsgs(jsonSeq, msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [s1, { canCreateNew: false, ...s2 }, s3],
+    }
+    msgs = [m2, m1, m2, m2] // card for s2 exceeded -> no create of new
+
+    seqResult = processMsgs(jsonSeq, msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('error')
+  })
+
+  it('should throw on sequences starting with !canCreateNew step', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [{ canCreateNew: false, ...s1 }, s2],
+    }
+    const msgs = [m1, m2]
+
+    expect(() => processMsgs(jsonSeq, msgs)).to.throw()
+  })
+
   it('should detect a sequence with repeating filter', () => {
     let jsonSeq: FBSequence = {
       name: 'seq1',
@@ -324,6 +356,64 @@ describe('SeqChecker', () => {
     expect(md.length).to.be.greaterThan(0)
     //console.log(`mdAst: ${JSON.stringify(md, null, 2)}`)
   })
+
+  it('should support sub-sequences with canCreateNew:false', () => {
+    let jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [{ sequence: { name: 'sub seq 1', steps: [{ canCreateNew: false, ...s3 }, s4] } }, s2],
+    }
+    const msgs = [m1, m4, m1, m3, m4, m2]
+    expect(() => processMsgs(jsonSeq, msgs)).to.throw()
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [
+        {
+          sequence: {
+            name: 'sub seq 1',
+            steps: [
+              { canCreateNew: true, ...s3 },
+              { canCreateNew: false, ...s4 },
+            ],
+          },
+        },
+        s2,
+      ],
+    }
+    const seqResult = processMsgs(jsonSeq, msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+  })
+
+  it('should support sub-sequences with canCreateNew:false triggered by card exceed', () => {
+    let jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [{ sequence: { name: 'sub seq 1', steps: [{ canCreateNew: false, ...s3 }, s4] } }, s2],
+    }
+    const msgs = [m3, m4, m4, m2]
+    // the 2nd m4 is ignored as it would trigger a new sub-sequence but that's not allowed
+    expect(() => processMsgs(jsonSeq, msgs)).to.throw()
+
+    jsonSeq = {
+      name: 'seq1',
+      steps: [
+        {
+          sequence: {
+            name: 'sub seq 1',
+            steps: [
+              { canCreateNew: true, ...s3 },
+              { canCreateNew: false, ...s4 },
+            ],
+          },
+        },
+        s2,
+      ],
+    }
+    const seqResult = processMsgs(jsonSeq, msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+  })
+
 
   // todo check sequence with as last step/partial
   // todo check for cardinalities with sub-sequences
