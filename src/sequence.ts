@@ -419,16 +419,24 @@ export interface FBSequence {
 // #region FBSeqStep
 export interface FBSeqStep {
   /**
-   * either a filter or sequence is needed!
+   * either a filter, sequence or alt is needed!
    */
   filter?: Filter
   sequence?: FBSequence
   /**
-   * if not provide name of filter or name of sequence will be used
+   * This step consists of alternative steps. Only one of the alternatives needs to match.
+   * The result stays a single result (e.g. a single event or a single sequence occurrence)
+   * The alternative steps inherit canCreateNew and card.
+   */
+  alt?: FBSeqStep[]
+  /**
+   * if not provided name of filter or name of sequence will be used
    */
   name?: string
   /**
    * cardinality as a regex quanitifier: ? | * | + | {n} | {n,} | {n,m}
+   *
+   * Note: currently only ?*+ are supported
    */
   card?: string
   /**
@@ -722,6 +730,8 @@ const filterFromStep = (step: FBSeqStep): Filter[] => {
     return [{ type: 3, ...step.filter }]
   } else if (step.sequence && typeof step.sequence === 'object') {
     return filterFromSeq(step.sequence)
+  } else if (step.alt && Array.isArray(step.alt)) {
+    return step.alt.map(filterFromStep).flat()
   }
   return []
 }
@@ -765,9 +775,7 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
     }
     const lastMandatoryStep = this.steps.findLast((step) => step.isMandatory())
     if (lastMandatoryStep !== undefined) {
-      const lastResult = this.stepsResult.get(lastMandatoryStep)
-      // if the last is a sequence only finish once the sequence is finished
-      return lastMandatoryStep.isFinished(lastResult)
+      return lastMandatoryStep.isFinished(this.stepsResult)
     }
     // no mandatory step found???
     throw 'no mandatory step found in sequence'
@@ -865,7 +873,50 @@ export const getCaptures = (regex: RegExp, payloadString: string) => {
     return matches.groups
   }
 }
+
 // #region SeqStep
+/**
+ * Create a new SeqStepFiler, SeqStepSequence or SeqStepAlt based on the json step.
+ *
+ * Performs sanity checks on the json step
+ * @param step the json step object
+ * @param stepPrefix
+ * @param stepNr
+ * @param DltFilterConstructor
+ * @returns an instance of SeqStep
+ */
+function newSeqStep<DltFilterType extends IDltFilter>(
+  step: FBSeqStep,
+  stepPrefix: string,
+  stepNr: number,
+  DltFilterConstructor: new (json: any, allowEdits?: boolean) => DltFilterType,
+): SeqStep<DltFilterType> {
+  const hasFilter = typeof step.filter === 'object'
+  const hasSequence = typeof step.sequence === 'object'
+  const hasAlt = Array.isArray(step.alt)
+  const sumHas = [hasFilter, hasSequence, hasAlt].reduce((acc, cur) => acc + (cur ? 1 : 0), 0)
+
+  if (sumHas === 0) {
+    throw new Error(`SeqStep#${stepPrefix}${stepNr}: no filter, sequence or alt(ernatives) for step found! JSON=${JSON.stringify(step)}`)
+  }
+  if (sumHas > 1) {
+    throw new Error(
+      `SeqStep#${stepPrefix}${stepNr}: more than one filter or sequence or alt(ernative) for step found! Should be one of filter, sequence or alt. JSON=${JSON.stringify(
+        step,
+      )}`,
+    )
+  }
+
+  if (hasFilter) {
+    return new SeqStepFilter<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+  } else if (hasSequence) {
+    return new SeqStepSequence<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+  } else if (hasAlt) {
+    return new SeqStepAlt<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+  }
+  throw new Error(`SeqStep#${this.stepPrefix}${stepNr}: no filter, sequence or alt(ernatives) for step found! JSON=${JSON.stringify(step)}`)
+}
+
 abstract class SeqStep<DltFilterType extends IDltFilter> {
   public minOcc: number = 1
   public maxOcc: number | undefined
@@ -876,19 +927,6 @@ abstract class SeqStep<DltFilterType extends IDltFilter> {
     public jsonStep: FBSeqStep,
     private DltFilterConstructor: new (json: any, allowEdits?: boolean) => DltFilterType,
   ) {
-    // todo do checks/preproc and throw errors if needed
-
-    if (typeof jsonStep.filter !== 'object' && typeof jsonStep.sequence !== 'object') {
-      throw new Error(`SeqStep#${stepPrefix}${stepNr}: no filter or sequence for step found! JSON=${JSON.stringify(jsonStep)}`)
-    }
-    if (typeof jsonStep.filter === 'object' && typeof jsonStep.sequence === 'object') {
-      throw new Error(
-        `SeqStep#${stepPrefix}${stepNr}: both filter or sequence for step found! Should be either filter or sequence. JSON=${JSON.stringify(
-          jsonStep,
-        )}`,
-      )
-    }
-
     switch (jsonStep.card) {
       case '?':
         this.minOcc = 0
@@ -946,7 +984,77 @@ abstract class SeqStep<DltFilterType extends IDltFilter> {
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined]
 
-  abstract isFinished(lastResult: SeqStepResult<DltFilterType> | undefined): boolean
+  /**
+   * returns whether the step is finished.
+   * Will only be called if the step is mandatory
+   */
+  abstract isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean
+}
+
+class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType> {
+  private altSteps: SeqStep<DltFilterType>[]
+  constructor(
+    stepPrefix: string,
+    stepNr: number,
+    jsonStep: FBSeqStep,
+    DltFilterConstructor: new (json: any, allowEdits?: boolean) => DltFilterType,
+  ) {
+    super(stepPrefix, stepNr, jsonStep, DltFilterConstructor)
+    if (typeof jsonStep.alt !== 'object' || !Array.isArray(jsonStep.alt)) {
+      throw new Error(`SeqStep#${stepPrefix}${stepNr}: no alt array for step found! JSON=${JSON.stringify(jsonStep)}`)
+    }
+    if (jsonStep.alt.length === 0) {
+      throw new Error(`SeqStep#${stepPrefix}${stepNr}: no alt(ernative) steps provided! JSON=${JSON.stringify(jsonStep)}`)
+    }
+    // we need to pass the canCreateNew (non overwriteable) and card (overwriteable) attribs to the alt steps
+    this.altSteps = jsonStep.alt.map((altStep, idx) =>
+      newSeqStep(
+        { card: jsonStep.card, ...altStep, canCreateNew: this.canCreateNew },
+        `${stepPrefix}a${idx + 1}`,
+        stepNr,
+        DltFilterConstructor,
+      ),
+    )
+  }
+
+  isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean {
+    // return if any alt step is finished
+    return this.altSteps.some((step) => {
+      return step.isFinished(stepsResult)
+    })
+  }
+  processMsg(
+    msg: ViewableDltMsg,
+    curSeqOcc: SeqOccurrence<DltFilterType> | undefined,
+    seqResult: FbSequenceResult,
+    newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
+  ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
+    if (curSeqOcc === undefined && !this.canCreateNew) {
+      return [false, curSeqOcc]
+    }
+    // pass the msg to alt steps and return the first one that matches
+    // TODO check whether any did match already? (e.g. by checking whether the step has already a result?)
+    // and then only call that one?
+    // this is only for card and mixed use-cases...
+
+    for (const altStep of this.altSteps) {
+      const [updated, newOcc] = altStep.processMsg(msg, curSeqOcc, seqResult, newOccurrence)
+      if (updated) {
+        // update seqResult for this step... we do mirror the result from the alt step
+        // that updated/matched
+        if (curSeqOcc !== undefined) {
+          const curSeqOccStepResult = curSeqOcc.stepsResult.get(altStep)
+          curSeqOccStepResult ? curSeqOcc.stepsResult.set(this, curSeqOccStepResult) : curSeqOcc.stepsResult.delete(this)
+        }
+        if (newOcc !== curSeqOcc && newOcc !== undefined) {
+          const newSeqOccStepResult = newOcc.stepsResult.get(altStep)
+          newSeqOccStepResult ? newOcc.stepsResult.set(this, newSeqOccStepResult) : newOcc.stepsResult.delete(this)
+        }
+        return [true, newOcc]
+      }
+    }
+    return [false, curSeqOcc]
+  }
 }
 
 class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType> {
@@ -965,7 +1073,8 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
     this.filter = new DltFilterConstructor({ type: 3, ...jsonStep.filter })
   }
 
-  isFinished(lastResult: SeqStepResult<DltFilterType> | undefined): boolean {
+  isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean {
+    const lastResult = stepsResult.get(this)
     return lastResult !== undefined
   }
 
@@ -1067,7 +1176,8 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
     this.sequence = new Sequence(stepPrefix.length > 0 ? `${stepPrefix}${stepNr}.` : `${stepNr}.`, jsonStep.sequence, DltFilterConstructor)
   }
 
-  isFinished(lastResult: SeqStepResult<DltFilterType> | undefined): boolean {
+  isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean {
+    const lastResult = stepsResult.get(this)
     return (
       lastResult !== undefined && lastResult.length > 0 && (lastResult[lastResult.length - 1] as SeqOccurrence<DltFilterType>).isFinished()
     )
@@ -1197,21 +1307,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
       throw new Error(`SeqChecker: steps not an array for sequence '${this.jsonSeq.name}'! JSON=${JSON.stringify(this.jsonSeq)}`)
     }
     for (const [idx, step] of this.jsonSeq.steps.entries()) {
-      if (typeof step.filter !== 'object' && typeof step.sequence !== 'object') {
-        throw new Error(`SeqStep#${this.stepPrefix}${idx + 1}: no filter or sequence for step found! JSON=${JSON.stringify(step)}`)
-      }
-      if (typeof step.filter === 'object' && typeof step.sequence === 'object') {
-        throw new Error(
-          `SeqStep#${this.stepPrefix}${
-            idx + 1
-          }: both filter or sequence for step found! Should be either filter or sequence. JSON=${JSON.stringify(step)}`,
-        )
-      }
-      if (typeof step.filter === 'object') {
-        this.steps.push(new SeqStepFilter<DltFilterType>(this.stepPrefix, idx + 1, step, DltFilterConstructor))
-      } else {
-        this.steps.push(new SeqStepSequence<DltFilterType>(this.stepPrefix, idx + 1, step, DltFilterConstructor))
-      }
+      this.steps.push(newSeqStep(step, stepPrefix, idx + 1, DltFilterConstructor))
     }
 
     if (this.steps.length > 0 && !this.steps[0].canCreateNew) {

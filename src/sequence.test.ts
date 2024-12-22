@@ -80,7 +80,7 @@ describe('SeqChecker', () => {
     const seqResult = processMsgs(jsonSeq, msgs)
     expect(seqResult.occurrences).to.have.lengthOf(expected.length)
     seqResult.occurrences.forEach((occ, idx) => {
-      expect(occ.result).to.equal(expected[idx])
+      expect(occ.result).to.equal(expected[idx], `occurrence ${idx} != ${expected[idx]}: ${JSON.stringify(occ)}`)
     })
     return seqResult
   }
@@ -283,6 +283,44 @@ describe('SeqChecker', () => {
 
     // none -> should be ok as well
     testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '*' }, s2], [m1, m2], ['ok'])
+  })
+
+  it('should support sequences with alt(ernative) steps', () => {
+    testSeq([s1, { alt: [s2, s3] }], [m1, m2], ['ok'])
+    testSeq([s1, { alt: [s2, s3] }], [m1, m3], ['ok'])
+    testSeq([s1, { alt: [s2, s3] }, s2], [m1, m3, m2], ['ok'])
+    testSeq([s1, { alt: [s2, s3] }], [m1, m3, m2], ['ok', 'error']) // mand. step 1 missing
+    testSeq([s1, { alt: [s2, s3] }, s4, s4], [m1, m4, m2, m3, m4], ['error', 'undefined']) // alt being out of sequence
+    testSeq([s1, { canCreateNew: false, alt: [s2, s3] }], [m1, m3, m2], ['ok'])
+    testSeq([s1, { canCreateNew: false, alt: [s2, s3] }, s2], [m1, m3, m3, m2], ['error', 'error']) // the 2nd m3 triggers out of card!
+    testSeq([s1, { alt: [s2, s3] }], [m1, m3, m1, m2], ['ok', 'ok'])
+    testSeq([{ alt: [s2, s3] }], [m3, m2], ['ok', 'ok'])
+    // with card:
+    testSeq([s1, { card: '*', alt: [s2, s3] }, s4], [m1, m4], ['ok'])
+    testSeq([s1, { card: '?', alt: [s2, s3] }, s4], [m1, m4], ['ok'])
+    testSeq([s1, { card: '+', alt: [s2, s3] }, s4], [m1, m4], ['error'])
+    testSeq([s1, { card: '?', alt: [s2, s3] }, s4], [m1, m2, m4], ['ok'])
+    testSeq([s1, { card: '+', alt: [s2, s3] }, s4], [m1, m2, m4], ['ok'])
+    testSeq([{ card: '+', alt: [s2, s3] }, s4], [m2, m4], ['ok'])
+    testSeq([{ card: '+', alt: [s2, s3] }, s4], [m2, m2, m4], ['ok'])
+    testSeq([s1, { card: '+', alt: [s2, s3] }, s4], [m1, m2, m2, m4], ['ok'])
+    testSeq([s1, { card: '*', alt: [s2, s3] }, s4], [m1, m2, m2, m4], ['ok'])
+    testSeq([s1, { card: '*', alt: [s2, s3] }, s4], [m1, m2, m2, m3, m4], ['ok']) // we do allow mix of alternatives
+    // test with sub-sequence
+    testSeq([s1, { alt: [{ sequence: { name: 'sub seq 1', steps: [s2, s3] } }, s4] }, s4], [m1, m2, m3, m4], ['ok'])
+    testSeq([s1, { alt: [{ sequence: { name: 'sub seq 1', steps: [s2, s3] } }, s4] }, s4], [m1, m4, m4], ['ok'])
+    testSeq([{ alt: [{ sequence: { name: 'sub seq 1', steps: [s2, s3] } }, s4] }, s4], [m2, m3, m4], ['ok'])
+    testSeq([{ alt: [{ sequence: { name: 'sub seq 1', steps: [s2, s3] } }, s4] }, s4], [m4, m4], ['ok'])
+    testSeq([s1, { alt: [{ sequence: { name: 'sub seq 1', steps: [s2, s3] } }, s4] }], [m1, m4], ['ok'])
+    testSeq([s1, { alt: [{ sequence: { name: 'sub seq 1', steps: [s2, s3] } }, s4] }], [m1, m2, m3], ['ok'])
+  })
+
+  it('should handle alt seq missing parameters', () => {
+    // alt step with invalid filter, sequence or alt
+    expect(() => testSeq([{ alt: [{ name: 'a' }] }], [], [])).to.throw()
+
+    // empty alt not allowed
+    expect(() => testSeq([{ alt: [] }], [], [])).to.throw()
   })
 
   // todo check for sub-sequences being out of order
