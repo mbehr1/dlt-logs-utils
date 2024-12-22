@@ -3,6 +3,7 @@ import {
   DltFilter,
   FbEvent,
   FbSeqOccurrence,
+  FBSeqStep,
   FBSequence,
   FbSequenceResult,
   FilterableDltMsg,
@@ -71,6 +72,19 @@ describe('SeqChecker', () => {
     return seqResult
   }
 
+  const testSeq = (steps: FBSeqStep[], msgs: ViewableDltMsg[], expected: string[]): FbSequenceResult => {
+    const jsonSeq: FBSequence = {
+      name: 'testSeq',
+      steps,
+    }
+    const seqResult = processMsgs(jsonSeq, msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(expected.length)
+    seqResult.occurrences.forEach((occ, idx) => {
+      expect(occ.result).to.equal(expected[idx])
+    })
+    return seqResult
+  }
+
   beforeEach(() => {})
 
   it('should initialize correctly', () => {
@@ -114,146 +128,48 @@ describe('SeqChecker', () => {
   })
 
   it('should detect two occurrences of a sequence', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1],
-    }
-    const msgs = [m1, m1]
-
-    const seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(2)
-    seqResult.occurrences.forEach((occ) => {
-      expect(occ.result).to.equal('ok')
-    })
+    testSeq([s1], [m1, m1], ['ok', 'ok'])
   })
 
   it('should detect a partial sequence and a starting one', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, s2],
-    }
-    const msgs = [m2, m1]
-
-    const seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(2)
-    expect(seqResult.occurrences[0].result).to.equal('error')
-    expect(seqResult.occurrences[1].result).to.equal('undefined')
+    testSeq([s1, s2], [m2, m1], ['error', 'undefined'])
   })
 
   it('should detect a partial sequence and a complete one', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, s2],
-    }
-    const msgs = [m2, m1, m2]
-
-    const seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(2)
-    expect(seqResult.occurrences[0].result).to.equal('error')
-    expect(seqResult.occurrences[1].result).to.equal('ok')
+    testSeq([s1, s2], [m2, m1, m2], ['error', 'ok'])
   })
 
   it('should not detect a start of a partial sequence with steps canCreateNew:false', () => {
-    let jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, { canCreateNew: false, ...s2 }],
-    }
-    let msgs = [m2, m1, m2]
+    testSeq([s1, { canCreateNew: false, ...s2 }], [m2, m1, m2], ['ok'])
 
-    let seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
-
-    jsonSeq = {
-      name: 'seq1',
-      steps: [s1, { canCreateNew: false, ...s2 }, s3],
-    }
-    msgs = [m2, m1, m2, m2] // card for s2 exceeded -> no create of new
-
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('error')
+    // card for s2 exceeded -> no create of new
+    testSeq([s1, { canCreateNew: false, ...s2 }, s3], [m2, m1, m2, m2], ['error'])
   })
 
   it('should throw on sequences starting with !canCreateNew step', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [{ canCreateNew: false, ...s1 }, s2],
-    }
-    const msgs = [m1, m2]
-
-    expect(() => processMsgs(jsonSeq, msgs)).to.throw()
+    expect(() => testSeq([{ canCreateNew: false, ...s1 }, s2], [m1, m2], [])).to.throw()
   })
 
   it('should detect a sequence with repeating filter', () => {
-    let jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, s1],
-    }
-    let msgs = [m1, m1]
+    testSeq([s1, s1], [m1, m1], ['ok'])
 
-    let seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([o3_0_m, s1, s3], [m3, m1, m3], ['ok']) // m*m <- we cannot but m*nm
 
-    jsonSeq = {
-      name: 'seq1',
-      steps: [o3_0_m, s1, s3], // m*m <- we cannot but m*nm
-    }
-    msgs = [m3, m1, m3] // [m3, m3, m1, m3]
+    testSeq([o3_0_m, s1, s3], [m3, m3, m1, m3], ['ok']) //m*nm
 
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
-
-    jsonSeq = {
-      name: 'seq1',
-      steps: [o3_0_m, s1, s3], //m*nm
-    }
-    msgs = [m3, m3, m1, m3]
-
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
-
-    jsonSeq = {
-      name: 'seq1',
-      steps: [o3_0_m, s1, s2], //m*ns
-    }
-    msgs = [m3, m1, m3, m2] // invalid! as 2nd m3 is out of sequence -> should be two occurrences m3,m1 and m3,m2 (both errors)
-
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(2)
-    expect(seqResult.occurrences[0].result).to.equal('error')
+    // invalid! as 2nd m3 is out of sequence -> should be two occurrences m3,m1 and m3,m2 (both errors)
+    testSeq([o3_0_m, s1, s2], [m3, m1, m3, m2], ['error', 'error']) //m*ns
 
     // sub-sequences with optional steps
-    jsonSeq = {
-      name: 'seq1',
-      steps: [{ sequence: { name: 'sub seq 1', steps: [s1, s1] } }, { sequence: { name: 'sub seq 1.2', steps: [s1, s1] } }], // mm
-    }
-    msgs = [m1, m1, m1, m1]
-    seqResult = processMsgs(jsonSeq, msgs)
-    console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq(
+      [{ sequence: { name: 'sub seq 1', steps: [s1, s1] } }, { sequence: { name: 'sub seq 1.2', steps: [s1, s1] } }],
+      [m1, m1, m1, m1],
+      ['ok'],
+    ) // mm
   })
 
   it('should handle sequences starting with an optional step', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [o3_0_1, s2, o3_0_1],
-    }
-    const msgs = [m3, m2, m2]
-
-    const seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(2)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
-    expect(seqResult.occurrences[1].result).to.equal('ok')
+    testSeq([o3_0_1, s2, o3_0_1], [m3, m2, m2], ['ok', 'ok'])
   })
 
   it('should detect a sequence with optional steps', () => {
@@ -261,96 +177,34 @@ describe('SeqChecker', () => {
       name: 'seq1',
       steps: [s1, o3_0_1, s2],
     }
-    let msgs = [m1, m2]
 
-    let seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([s1, o3_0_1, s2], [m1, m2], ['ok'])
 
-    msgs = [m1, m3, m2]
-
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([s1, o3_0_1, s2], [m1, m3, m2], ['ok'])
 
     // not valid, should be detected as two sequences: m1,m3 and m3,m2
     // TODO or shall we detect it as a single sequence with an error?
-    msgs = [m1, m3, m3, m2]
+    testSeq([s1, o3_0_1, s2], [m1, m3, m3, m2], ['error', 'error'])
 
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(2)
-    expect(seqResult.occurrences[0].result).to.equal('error')
-    expect(seqResult.occurrences[1].result).to.equal('error')
+    testSeq([s1, o3_0_m, s2], [m1, m2], ['ok'])
 
-    jsonSeq = {
-      name: 'seq1',
-      steps: [s1, o3_0_m, s2],
-    }
-    msgs = [m1, m2]
+    testSeq([s1, o3_0_m, s2], [m1, m3, m3, m3, m2], ['ok'])
 
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([s1, o3_1_m, s2], [m1, m2], ['error'])
 
-    msgs = [m1, m3, m3, m3, m2]
+    testSeq([s1, o3_1_m, s2], [m1, m3, m2], ['ok'])
 
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
-
-    jsonSeq = {
-      name: 'seq1',
-      steps: [s1, o3_1_m, s2],
-    }
-    msgs = [m1, m2]
-
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('error')
-
-    msgs = [m1, m3, m2]
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
-
-    msgs = [m1, m3, m3, m2]
-    seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([s1, o3_1_m, s2], [m1, m3, m3, m2], ['ok'])
   })
 
   it('should support sub-sequences', () => {
-    let jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] } }, s2],
-    }
-    let msgs = [m1, m3, m4, m2]
-    let seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] } }, s2], [m1, m3, m4, m2], ['ok'])
 
-    jsonSeq = {
-      name: 'seq1',
-      steps: [{ sequence: { name: 'sub seq 1', steps: [s3, s4] } }],
-    }
-    msgs = [m3, m4]
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([{ sequence: { name: 'sub seq 1', steps: [s3, s4] } }], [m3, m4], ['ok'])
   })
 
   it('should support sequence starting with a sub-sequences', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [{ sequence: { name: 'sub seq 1', steps: [s3, s4] } }, s2],
-    }
-    const msgs = [m1, m3, m4, m2]
-    const seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    const seqResult = testSeq([{ sequence: { name: 'sub seq 1', steps: [s3, s4] } }, s2], [m1, m3, m4, m2], ['ok'])
     // seqResult can be converted to mdAst:
     const md = seqResultToMdAst(seqResult)
     expect(md.length).to.be.greaterThan(0)
@@ -358,16 +212,10 @@ describe('SeqChecker', () => {
   })
 
   it('should support sub-sequences with canCreateNew:false', () => {
-    let jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [{ sequence: { name: 'sub seq 1', steps: [{ canCreateNew: false, ...s3 }, s4] } }, s2],
-    }
-    const msgs = [m1, m4, m1, m3, m4, m2]
-    expect(() => processMsgs(jsonSeq, msgs)).to.throw()
+    expect(() => testSeq([{ sequence: { name: 'sub seq 1', steps: [{ canCreateNew: false, ...s3 }, s4] } }, s2], [], [])).to.throw()
 
-    jsonSeq = {
-      name: 'seq1',
-      steps: [
+    testSeq(
+      [
         {
           sequence: {
             name: 'sub seq 1',
@@ -379,24 +227,18 @@ describe('SeqChecker', () => {
         },
         s2,
       ],
-    }
-    const seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+      [m1, m4, m1, m3, m4, m2],
+      ['ok'],
+    )
   })
 
   it('should support sub-sequences with canCreateNew:false triggered by card exceed', () => {
-    let jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [{ sequence: { name: 'sub seq 1', steps: [{ canCreateNew: false, ...s3 }, s4] } }, s2],
-    }
-    const msgs = [m3, m4, m4, m2]
-    // the 2nd m4 is ignored as it would trigger a new sub-sequence but that's not allowed
-    expect(() => processMsgs(jsonSeq, msgs)).to.throw()
+    // first test that a sub-sequence with canCreateNew:false is not allowed and fails on creation
+    expect(() => testSeq([{ sequence: { name: 'sub seq 1', steps: [{ canCreateNew: false, ...s3 }, s4] } }, s2], [], [])).to.throw()
 
-    jsonSeq = {
-      name: 'seq1',
-      steps: [
+    // the 2nd m4 is ignored as it would trigger a new sub-sequence but that's not allowed
+    testSeq(
+      [
         {
           sequence: {
             name: 'sub seq 1',
@@ -408,75 +250,39 @@ describe('SeqChecker', () => {
         },
         s2,
       ],
-    }
-    const seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+      [m3, m4, m4, m2],
+      ['ok'],
+    )
   })
-
 
   // todo check sequence with as last step/partial
   // todo check for cardinalities with sub-sequences
 
   it('should support sub-sequences with card +', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '+' }, s2],
-    }
-    let msgs = [m1, m3, m4, m3, m4, m2] // twice should be ok
-    let seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    // twice should be ok
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '+' }, s2], [m1, m3, m4, m3, m4, m2], ['ok'])
 
-    msgs = [m1, m2] // none -> should be an error
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('error')
+    // none -> should be an error
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '+' }, s2], [m1, m2], ['error'])
   })
 
   it('should support sub-sequences with card ?', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '?' }, s2],
-    }
-    let msgs = [m1, m3, m4, m2]
-    let seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '?' }, s2], [m1, m3, m4, m2], ['ok'])
 
-    msgs = [m1, m2] // none -> should be ok
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    // none -> should be ok
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '?' }, s2], [m1, m2], ['ok'])
 
-    msgs = [m1, m3, m4, m3, m4, m2] // twice should be an error
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(2) // 2nd m3 errors out first, m4 starts new one, m2 ends it (with error as well)
-    expect(seqResult.occurrences[0].result).to.equal('error')
-    expect(seqResult.occurrences[1].result).to.equal('error')
+    // twice should be an error
+    // 2nd m3 errors out first, m4 starts new one, m2 ends it (with error as well)
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '?' }, s2], [m1, m3, m4, m3, m4, m2], ['error', 'error'])
   })
 
   it('should support sub-sequences with card *', () => {
-    const jsonSeq: FBSequence = {
-      name: 'seq1',
-      steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '*' }, s2],
-    }
-    let msgs = [m1, m3, m4, m3, m4, m2] // twice should be ok
-    let seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    // twice should be ok
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '*' }, s2], [m1, m3, m4, m3, m4, m2], ['ok']) // none -> should be ok as well
 
-    msgs = [m1, m2] // none -> should be ok as well
-    seqResult = processMsgs(jsonSeq, msgs)
-    //console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
-    expect(seqResult.occurrences).to.have.lengthOf(1)
-    expect(seqResult.occurrences[0].result).to.equal('ok')
+    // none -> should be ok as well
+    testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '*' }, s2], [m1, m2], ['ok'])
   })
 
   // todo check for sub-sequences being out of order
