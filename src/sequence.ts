@@ -1,6 +1,7 @@
 // TODO use json5??? import { default as JSON5 } from 'json5'
 
 // TODO for SeqChecker:
+// [] - check why commit with fix! triggered no release.
 // [] - add support for alt steps matching different alternative per occurrence
 // [] - add support for parallel steps (so non sequential)
 // [] - add support for lifecycles (a step can expect to be in a certain lifecycle)
