@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [0.8.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.7.0...v0.8.0) (2024-12-26)
+
+
+### Features
+
+* trigger a release ([a111157](https://github.com/mbehr1/dlt-logs-utils/commit/a111157dbeee1abc05199b91bfa21d5da8672ffb))
+
 # [0.7.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.6.0...v0.7.0) (2024-12-22)
 
 
