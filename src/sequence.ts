@@ -469,12 +469,12 @@ export interface FbEvent {
 /**
  * result of a single step occurrence
  */
-interface FbFilterStepRes {
+export interface FbFilterStepRes {
   stepType: 'filter'
   step: FBSeqStep
   res: FbEvent
 }
-interface FbAltStepRes {
+export interface FbAltStepRes {
   stepType: 'alt'
   step: FBSeqStep
   /**
@@ -484,13 +484,13 @@ interface FbAltStepRes {
   idx: number
   res: FbStepRes
 }
-interface FbSeqStepRes {
+export interface FbSeqStepRes {
   stepType: 'sequence'
   step: FBSeqStep
   res: FbSeqOccurrence
 }
 
-type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
+export type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
 /**
  * The result of a step consists either of:
  * - array of FbStepResult (for regular steps with filter)
@@ -504,7 +504,7 @@ type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
  * (It works as long as a full FbSequenceResult is serialized including the steps pointing to)
  */
 
-type StepResult = FbStepRes[] // FbEvent[] | FbSeqOccurrence[]
+export type StepResult = FbStepRes[] // FbEvent[] | FbSeqOccurrence[]
 
 export class FbSeqOccurrence {
   constructor(
