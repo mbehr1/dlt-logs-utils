@@ -72,7 +72,7 @@ describe('SeqChecker', () => {
     return seqResult
   }
 
-  const testSeq = (steps: FBSeqStep[], msgs: ViewableDltMsg[], expected: string[]): FbSequenceResult => {
+  const testSeq = (steps: FBSeqStep[], msgs: ViewableDltMsg[], expected: string[], logRes?: boolean): FbSequenceResult => {
     const jsonSeq: FBSequence = {
       name: 'testSeq',
       steps,
@@ -81,7 +81,38 @@ describe('SeqChecker', () => {
     expect(seqResult.occurrences).to.have.lengthOf(expected.length)
     seqResult.occurrences.forEach((occ, idx) => {
       expect(occ.result).to.equal(expected[idx], `occurrence ${idx} != ${expected[idx]}: ${JSON.stringify(occ)}`)
+      expect(occ.stepsResult).to.have.lengthOf(steps.length)
+      // check that each stepsResult matches the type of step:
+      occ.stepsResult.forEach((stepRes, stepIdx) => {
+        const step = steps[stepIdx]
+        if (stepRes !== undefined && stepRes.length > 0) {
+          stepRes.forEach((sr, idx) => {
+            expect(sr).to.have.property('stepType')
+            if ('filter' in step) {
+              expect(sr.stepType).to.equal('filter')
+            } else if ('sequence' in step) {
+              if (sr.stepType === 'filter' && sr.res.summary === 'error') {
+                expect(sr.res.title).to.include('mandatory step') // missing
+              } else {
+                expect(sr.stepType).to.equal('sequence', `sr#${idx} ${JSON.stringify(sr, null, 2)}`)
+              }
+            } else if ('alt' in step) {
+              expect(sr.stepType).to.be.oneOf(['sequence', 'filter'])
+              // see TODO in sequence.ts SeqStepAlt.processMsg
+              //expect(sr.stepType).to.equal('alt', `sr#${idx} ${JSON.stringify(sr, null, 2)}`)
+            }
+          })
+        }
+      })
     })
+    // we can convert the result to mdAst (at least without error)
+    if (logRes) {
+      console.log(`seqResult: ${JSON.stringify(seqResult, null, 2)}`)
+    }
+    const md = seqResultToMdAst(seqResult)
+    if (logRes) {
+      console.log(`mdAst: ${JSON.stringify(md, null, 2)}`)
+    }
     return seqResult
   }
 
