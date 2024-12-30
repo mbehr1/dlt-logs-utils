@@ -3,7 +3,7 @@
 // TODO for SeqChecker:
 // [] - check why commit with fix! triggered no release.
 // [] - add support for alt steps matching different alternative per occurrence
-// [] - add support for parallel steps (so non sequential)
+// [x] (0.9.0) - add support for parallel steps (so non sequential)
 // [] - add support for lifecycles (a step can expect to be in a certain lifecycle)
 // [] - add support for steps returning a warning
 // [x] - add support for context values for reporting
@@ -432,6 +432,10 @@ export interface FBSeqStep {
    */
   alt?: FBSeqStep[]
   /**
+   * This step consist of parallel steps. All parallel steps need to match/be ok for the step to be ok.
+   */
+  par?: FBSeqStep[]
+  /**
    * if not provided name of filter or name of sequence will be used
    */
   name?: string
@@ -490,7 +494,16 @@ export interface FbSeqStepRes {
   res: FbSeqOccurrence
 }
 
-export type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
+export interface FbParStepRes {
+  stepType: 'par'
+  step: FBSeqStep
+  /**
+   * results of the parallel steps. For each step the results as an array. As a step can have a card. > 1, we have an array of results
+   */
+  res: FbStepRes[][] // result contains ...summary:'undefined' for mandatory steps that are not executed and [] for optional steps that are not executed
+}
+
+export type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes | FbParStepRes
 /**
  * The result of a step consists either of:
  * - array of FbStepResult (for regular steps with filter)
@@ -504,7 +517,7 @@ export type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
  * (It works as long as a full FbSequenceResult is serialized including the steps pointing to)
  */
 
-export type StepResult = FbStepRes[] // FbEvent[] | FbSeqOccurrence[]
+export type StepResult = FbStepRes[]
 
 export class FbSeqOccurrence {
   constructor(
@@ -545,8 +558,26 @@ export const summaryForStepRes = (stepResult: FbStepRes): string => {
       return stepResult.res.result
     case 'alt':
       return summaryForStepRes(stepResult.res)
+    case 'par': // return the min ('error','warning','undefined','ok') of the par steps?
+      const minResult = (results: string[]): string => {
+        return results.reduce((acc, res) => {
+          if (res === 'error') {
+            return res
+          } else if (res === 'warning' && acc !== 'error') {
+            return res
+          } else if ((res === undefined || res === 'undefined') && acc !== 'error' && acc !== 'warning') {
+            return 'undefined'
+          }
+          return acc
+        }, 'ok')
+      }
+      // if the stepRes for a par step is undefined, we use 'undefined' as result (to indicate that a mandatory step was not executed)
+      // (for optional steps the result is [])
+      const parStepRes = stepResult.res.map((stepRes) => (stepRes !== undefined ? stepRes.map(summaryForStepRes) : 'undefined')).flat()
+      return minResult(parStepRes)
   }
 }
+
 export const msgForStepRes = (stepResult: FbStepRes): string => {
   switch (stepResult.stepType) {
     case 'filter':
@@ -555,6 +586,29 @@ export const msgForStepRes = (stepResult: FbStepRes): string => {
       return stepResult.res.startEvent.msgText ? stepResult.res.startEvent.msgText : stepResult.res.startEvent.title
     case 'alt':
       return msgForStepRes(stepResult.res)
+    case 'par': // return the first of the par steps? (or a concat of the first ones)
+      const startEvent = startEventForStepRes(stepResult)
+      return startEvent ? (startEvent.msgText ? startEvent.msgText : startEvent.title) : ''
+  }
+}
+
+export const startEventForStepRes = (stepResult: FbStepRes): FbEvent | undefined => {
+  switch (stepResult.stepType) {
+    case 'filter':
+      return stepResult.res
+    case 'sequence':
+      return stepResult.res.startEvent
+    case 'alt':
+      return startEventForStepRes(stepResult.res)
+    case 'par': {
+      // return the first of the par steps? (or a concat of the first ones)
+      const startEvents = stepResult.res
+        .flat()
+        .map((res) => startEventForStepRes(res))
+        .filter((ev) => ev !== undefined)
+      // TODO sort by time or index?
+      return startEvents.length > 0 ? startEvents[0] : undefined
+    }
   }
 }
 
@@ -650,8 +704,8 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
       })
       .join(',')}`
 
-    const stepsAsHtml = (stepsResult: StepResult[], sequence: FBSequence): Html => {
-      const stepsSummary = `${stepsResult
+    const stepsAsHtml = (summaryPrefix: string, stepsResult: StepResult[], steps: FBSeqStep[]): Html => {
+      const stepsSummary = `${summaryPrefix}${stepsResult
         .map((res: StepResult) => {
           if (res.length === 0) {
             return ''
@@ -667,22 +721,36 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
           stepsResult
             .map((res, stepIdx) => {
               if (res.length === 0) {
-                return `<td>✔️</td><td>${stepIdx + 1}</td><td>${nameFromStep(sequence.steps[stepIdx], '')}</td><td></td><td></td>`
+                return `<td>✔️</td><td>${stepIdx + 1}</td><td>${nameFromStep(steps[stepIdx], '')}</td><td></td><td></td>`
               } else {
                 return res.map((r) => {
                   if (r.stepType === 'sequence') {
-                    const stepName = nameFromStep(r.step, nameFromStep(sequence.steps[stepIdx], ''))
+                    const stepName = nameFromStep(r.step, nameFromStep(steps[stepIdx], ''))
                     let msg = `<td>${resAsEmoji(r.res.result)}</td><td>${stepIdx + 1}</td><td>${stepName}</td><td>${r.res.result}</td><td>${
                       r.res.startEvent.msgText ? r.res.startEvent.msgText : ''
                     }`
                     // summary the graphical overview of the steps and in next line the startEvent.msgText
-                    msg += `<br>${stepsAsHtml(r.res.stepsResult, r.step.sequence).value}`
+                    // TODO: this looks bad (r.step.sequence?...)
+                    msg += `<br>${
+                      stepsAsHtml('', r.res.stepsResult, r.step.sequence ? r.step.sequence.steps : r.step.alt ? r.step.alt : r.step.par)
+                        .value
+                    }`
                     if (r.res.failures.length > 0) {
                       msg += `<br>${r.res.failures.length} failures:<br>${r.res.failures.join('<br>')}`
                     }
                     if (r.res.context.length > 0) {
                       msg += `<br>${r.res.context.map(([name, value]) => `${name}: ${value}`).join('<br>')}`
                     }
+                    msg += `</td>`
+                    return msg
+                  } else if (r.stepType === 'par') {
+                    const stepName = nameFromStep(r.step, nameFromStep(steps[stepIdx], ''))
+                    const startEvent = startEventForStepRes(r)
+                    const summary = summaryForStepRes(r)
+                    let msg = `<td>${resAsEmoji(summary)}</td><td>${stepIdx + 1}</td><td>${stepName}</td><td>${summary}</td><td>${
+                      startEvent?.msgText ? startEvent.msgText : ''
+                    }`
+                    msg += `<br>${stepsAsHtml('parallel: ', r.res, r.step.par).value}`
                     msg += `</td>`
                     return msg
                   } else {
@@ -709,7 +777,7 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
       occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '<notime>',
       typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
       occ.context.length > 0 ? occ.context.map(([name, value]) => `${name}: ${value}`).join('<br>') : '', // todo html encode! e.g. using https://github.com/component/escape-html/blob/master/index.js
-      stepsAsHtml(occ.stepsResult, seqResult.sequence),
+      stepsAsHtml('', occ.stepsResult, seqResult.sequence.steps),
       occ.failures.length > 0 ? occ.failures.join('\n') : '',
     ])
   }
@@ -776,6 +844,8 @@ const filterFromStep = (step: FBSeqStep): Filter[] => {
     return filterFromSeq(step.sequence)
   } else if (step.alt && Array.isArray(step.alt)) {
     return step.alt.map(filterFromStep).flat()
+  } else if (step.par && Array.isArray(step.par)) {
+    return step.par.map(filterFromStep).flat()
   }
   return []
 }
@@ -786,7 +856,6 @@ const filterFromStep = (step: FBSeqStep): Filter[] => {
  */
 const filterFromSeq = (seq: FBSequence): Filter[] => {
   const filterFromFailures = seq.failures ? Object.entries(seq.failures).map(([_, filter]) => filter) : []
-  // todo add non sequential filters as well (so arrays of filters)
   const filtersFromSteps = seq.steps ? seq.steps.map(filterFromStep).flat() : []
   return [...filterFromFailures, ...filtersFromSteps]
 }
@@ -821,7 +890,7 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
     }
     const lastMandatoryStep = this.steps.findLast((step) => step.isMandatory())
     if (lastMandatoryStep !== undefined) {
-      return lastMandatoryStep.isFinished(this.stepsResult)
+      return lastMandatoryStep.isFinished(this)
     }
     // no mandatory step found???
     throw 'no mandatory step found in sequence'
@@ -835,7 +904,7 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
         return step.isMandatory()
           ? [
               {
-                stepType: 'filter', // TODO or to match the stepType of the step?
+                stepType: 'filter',
                 step,
                 res: { evType: 'step', summary: 'error', title: `mandatory step ${step.stepNr} missing`, timeStamp: 0 },
               },
@@ -868,19 +937,21 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
       return 'error'
     }
     const stepResults = this.steps.map((step) => {
+      step.finalizeResults()
       const result = this.stepsResult.get(step)
       if (result === undefined || result.length === 0) {
         return undefined
       }
       return result.reduce((acc, stepRes) => {
-        const thisStepRes = stepRes instanceof SeqOccurrence ? stepRes.result() : summaryForStepRes(stepRes as unknown as FbStepRes)
+        const thisStepRes = stepRes.stepType === 'tmpSequence' ? stepRes.result() : summaryForStepRes(stepRes /*as unknown as FbStepRes*/)
         if (thisStepRes === 'error') {
           return 'error'
-        } else if (thisStepRes === 'warning') {
+        } else if (thisStepRes === 'warning' && acc !== 'error') {
           return 'warning'
-        } else {
-          return acc
+        } else if (thisStepRes === 'undefined' && acc !== 'error' && acc !== 'warning') {
+          return 'undefined'
         }
+        return acc
       }, 'ok')
     })
 
@@ -893,13 +964,17 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
 
     // any mandatory step missing but a later mandatory step is there? -> error
     // determine last missing mandatory step and compare towards maxStepNr
-    const lastMandatoryStep = this.steps.findLast((step, idx) => step.isMandatory() && stepResults[idx] === undefined)
+    const lastMandatoryStep = this.steps.findLast(
+      (step, idx) => step.isMandatory() && (stepResults[idx] === undefined || stepResults[idx] === 'undefined'),
+    )
     if (lastMandatoryStep !== undefined && lastMandatoryStep.stepNr < this.maxStepNr) {
       return `error`
     }
 
     // any mandatory step missing? -> undefined
-    const mandStepsUndefined = this.steps.filter((step, idx) => step.isMandatory() && stepResults[idx] === undefined)
+    const mandStepsUndefined = this.steps.filter(
+      (step, idx) => step.isMandatory() && (stepResults[idx] === undefined || stepResults[idx] === 'undefined'),
+    )
     if (mandStepsUndefined.length > 0) {
       return 'undefined'
     }
@@ -945,14 +1020,17 @@ function newSeqStep<DltFilterType extends IDltFilter>(
   const hasFilter = typeof step.filter === 'object'
   const hasSequence = typeof step.sequence === 'object'
   const hasAlt = Array.isArray(step.alt)
-  const sumHas = [hasFilter, hasSequence, hasAlt].reduce((acc, cur) => acc + (cur ? 1 : 0), 0)
+  const hasPar = Array.isArray(step.par)
+  const sumHas = [hasFilter, hasSequence, hasAlt, hasPar].reduce((acc, cur) => acc + (cur ? 1 : 0), 0)
 
   if (sumHas === 0) {
-    throw new Error(`SeqStep#${stepPrefix}${stepNr}: no filter, sequence or alt(ernatives) for step found! JSON=${JSON.stringify(step)}`)
+    throw new Error(
+      `SeqStep#${stepPrefix}${stepNr}: no filter, sequence, alt(ernatives) or par(allel) for step found! JSON=${JSON.stringify(step)}`,
+    )
   }
   if (sumHas > 1) {
     throw new Error(
-      `SeqStep#${stepPrefix}${stepNr}: more than one filter or sequence or alt(ernative) for step found! Should be one of filter, sequence or alt. JSON=${JSON.stringify(
+      `SeqStep#${stepPrefix}${stepNr}: more than one filter, sequence, alt(ernative) or par(allel) for step found! Should be one of filter, sequence, alt or par. JSON=${JSON.stringify(
         step,
       )}`,
     )
@@ -964,6 +1042,8 @@ function newSeqStep<DltFilterType extends IDltFilter>(
     return new SeqStepSequence<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
   } else if (hasAlt) {
     return new SeqStepAlt<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+  } else if (hasPar) {
+    return new SeqStepPar<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
   }
   throw new Error(`SeqStep#${this.stepPrefix}${stepNr}: no filter, sequence or alt(ernatives) for step found! JSON=${JSON.stringify(step)}`)
 }
@@ -984,7 +1064,7 @@ abstract class SeqStep<DltFilterType extends IDltFilter> {
         this.maxOcc = 1
         break
       case '*':
-        this.minOcc = 0 // todo 0
+        this.minOcc = 0
         break
       case '+':
         this.minOcc = 1
@@ -1032,6 +1112,7 @@ abstract class SeqStep<DltFilterType extends IDltFilter> {
     msg: ViewableDltMsg,
     curSeqOcc: SeqOccurrence<DltFilterType> | undefined,
     seqResult: FbSequenceResult,
+    haveOccurrence: boolean, // to check with .canCreateNew whether we have a current occurrence (we cannot use curSeqOcc as for e.g. par steps we use different occurrences)
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined]
 
@@ -1039,8 +1120,237 @@ abstract class SeqStep<DltFilterType extends IDltFilter> {
    * returns whether the step is finished.
    * Will only be called if the step is mandatory
    */
-  abstract isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean
+  abstract isFinished(occurrence: SeqOccurrence<DltFilterType>): boolean
+
+  /**
+   * return whether the occurrence allows more matches/msg
+   */
+  abstract allowsMoreMatches(occurrence: SeqOccurrence<DltFilterType>): boolean
+
+  /**
+   * will be called before the result is consolidated. Can be used to finalize/modify results
+   */
+  finalizeResults(): void {}
 }
+
+// #region SeqStepPar
+class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType> {
+  private parSteps: SeqStep<DltFilterType>[]
+  // keep a map of FbSeqOccurrences[] for each occurrence of ourself
+  // the array contains the results of the parallel stepså
+  private occData: Map<FbParStepRes, SeqOccurrence<DltFilterType>[]> = new Map()
+
+  constructor(
+    stepPrefix: string,
+    stepNr: number,
+    jsonStep: FBSeqStep,
+    DltFilterConstructor: new (json: any, allowEdits?: boolean) => DltFilterType,
+  ) {
+    super(stepPrefix, stepNr, jsonStep, DltFilterConstructor)
+    if (jsonStep.par.length === 0) {
+      throw new Error(`SeqStepPar#${stepPrefix}${stepNr}: no par(allel) steps provided! JSON=${JSON.stringify(jsonStep)}`)
+    }
+    // every step can have its own card and canCreateNew attribs
+    this.parSteps = jsonStep.par.map((parStep, idx) =>
+      newSeqStep(parStep, `${stepPrefix.length > 0 ? stepPrefix + '.p' : 'p'}${idx + 1}`, stepNr, DltFilterConstructor),
+    )
+  }
+
+  /**
+   * return whether the last occurrence of this step is finished
+   * @param occurrence - sequence occurrence with the results of this step
+   * @returns
+   */
+  isFinished(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const results = occurrence.stepsResult.get(this) as FbParStepRes[] | undefined
+    if (results !== undefined && results.length > 0) {
+      // return if all par steps are finished
+      const stepsOccData = this.occData.get(results[results.length - 1])
+      if (stepsOccData === undefined) {
+        console.error(`SeqStepPar#${this.stepPrefix}${this.stepNr}: no occurrence data found for last occurrence! Logical error!`)
+        return false
+      }
+      return this.parSteps.every((step, idx) => {
+        if (stepsOccData[idx] === undefined) {
+          return !step.isMandatory()
+        }
+        return stepsOccData[idx] !== undefined && step.isFinished(stepsOccData[idx])
+      })
+    }
+    return false
+  }
+
+  allowsMoreMatches(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const results = occurrence.stepsResult.get(this) as FbParStepRes[] | undefined
+    if (this.maxOcc === undefined || results.length < this.maxOcc) {
+      return true
+    }
+    if (results.length === this.maxOcc) {
+      // check if any of the par steps allows more matches
+      const stepsOccData = this.occData.get(results[results.length - 1])
+      if (stepsOccData !== undefined && stepsOccData.length > 0) {
+        return this.parSteps.some((step, idx) => {
+          const stepOcc = stepsOccData[idx]
+          return stepOcc === undefined || step.allowsMoreMatches(stepOcc)
+        })
+      }
+      return !this.isFinished(occurrence)
+    }
+    return false
+  }
+
+  finalizeResults(): void {
+    super.finalizeResults()
+    // finalize results of all par steps
+    this.parSteps.forEach((step, idx) => step.finalizeResults())
+
+    // now copy the data to the overall par step results
+    for (const [parStepRes, stepsOccData] of this.occData.entries()) {
+      parStepRes.res.length = stepsOccData.length
+      for (const [idx, stepOcc] of stepsOccData.entries()) {
+        let res: SeqStepResult<DltFilterType> | undefined = stepOcc !== undefined ? stepOcc.stepsResult.values().next().value : undefined
+        if (res !== undefined && res.length > 0) {
+          res = res.map((stepRes) => {
+            if (stepRes.stepType === 'tmpSequence') {
+              return stepRes.asFbSeqOccurrence()
+            }
+            return stepRes
+          })
+        }
+        if (res === undefined) {
+          if (this.parSteps[idx].isMandatory()) {
+            res = [
+              {
+                stepType: 'filter',
+                step: this.parSteps[idx].jsonStep,
+                res: {
+                  evType: 'step',
+                  summary: 'undefined',
+                  title: `mandatory step ${this.parSteps[idx].stepPrefix} missing`,
+                  timeStamp: 0,
+                },
+              },
+            ]
+          } else {
+            res = []
+          }
+        }
+        parStepRes.res[idx] = res as FbStepRes[]
+      }
+    }
+  }
+
+  processMsg(
+    msg: ViewableDltMsg,
+    curSeqOcc: SeqOccurrence<DltFilterType> | undefined,
+    seqResult: FbSequenceResult,
+    haveOccurrence: boolean,
+    newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
+  ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
+    // type StepResult = FbStepRes[] // FbEvent[] | FbSeqOccurrence[]
+    // type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
+    // type SeqStepResult<DltFilterT...> = StepResult | SeqOccurrence<DltFilterType>[]
+
+    if (!haveOccurrence && !this.canCreateNew) {
+      return [false, curSeqOcc]
+    }
+    let curValues = curSeqOcc?.stepsResult.get(this) as FbParStepRes[] | undefined
+
+    // do we have a started one? (a !isFinished() one)
+    let runningValues: FbParStepRes | undefined = undefined
+    let lastFinishedValues: FbParStepRes | undefined = undefined // only if the last one is finished (not running)
+    if (curValues !== undefined && curValues.length > 0) {
+      if (!this.isFinished(curSeqOcc) /* || this.allowsMoreMatches(curSeqOcc)*/) {
+        runningValues = curValues[curValues.length - 1]
+      } else {
+        lastFinishedValues = curValues[curValues.length - 1]
+      }
+    }
+    const stepsOccRunningData = runningValues ? this.occData.get(runningValues) : undefined
+    const stepsOccFinishedData = lastFinishedValues ? this.occData.get(lastFinishedValues) : undefined
+
+    for (const [idx, parStep] of this.parSteps.entries()) {
+      // if we have a non running one but a last finished one and this parStep allows more matches, pass it on to it:
+      let prevStepOcc: SeqOccurrence<DltFilterType> | undefined = undefined
+      let stepRunningValues: FbParStepRes | undefined = runningValues
+      if (
+        stepsOccFinishedData !== undefined &&
+        (stepsOccFinishedData[idx] === undefined || parStep.allowsMoreMatches(stepsOccFinishedData[idx]))
+      ) {
+        prevStepOcc = stepsOccFinishedData[idx]
+        stepRunningValues = lastFinishedValues
+      }
+
+      const stepNewOccurrence = (msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> => {
+        const newOcc = new SeqOccurrence(
+          step.jsonStep,
+          prevStepOcc ? prevStepOcc.instance + 1 : 1,
+          {
+            evType: 'sequence', // or parStep? as it wont be reflected to outside anyhow. finalizeResults() will take only the results from it
+            title: this.name,
+            timeInMs: msg.receptionTimeInMs, // todo: map to lifecycle time + timestamp...
+            timeStamp: msg.timeStamp,
+            lifecycle: msg.lifecycle,
+            summary: `started by step #${step.stepPrefix}${step.stepNr} via msg #${msg.index}`,
+            msgText: `\#${msg.index} ${msg.timeStamp / 10000}s ${msg.ecu} ${msg.apid} ${msg.ctid} ${msg.payloadString}`,
+          },
+          [parStep],
+        )
+        if (curValues === undefined) {
+          if (curSeqOcc === undefined) {
+            curSeqOcc = newOccurrence(msg, this)
+          }
+          curSeqOcc.stepsResult.set(this, (curValues = []))
+        }
+        if (stepRunningValues === undefined) {
+          curValues.push({ stepType: 'par', step: this.jsonStep, res: new Array(this.parSteps.length).fill(undefined) })
+          stepRunningValues = curValues[curValues.length - 1]
+          if (runningValues === undefined) {
+            runningValues = stepRunningValues
+          }
+          this.occData.set(stepRunningValues, new Array(this.parSteps.length))
+        }
+        this.occData.get(stepRunningValues)![idx] = newOcc
+        newOcc.context = curSeqOcc.context // we share the context with the parent sequence
+        return newOcc
+      }
+
+      const [updated, newOcc] = parStep.processMsg(msg, prevStepOcc, seqResult, curSeqOcc !== undefined, stepNewOccurrence)
+      if (updated) {
+        // the results get updated only in the finalizeResults() method
+
+        // check for sequence compliance?
+        let errorText: string | undefined = undefined
+        if (curSeqOcc.maxStepNr > this.stepNr) {
+          errorText = `step #${this.stepPrefix}${this.stepNr} out of order (maxStepNr=${curSeqOcc.maxStepNr})`
+        } else if (this.maxOcc !== undefined) {
+          // check cardinality:
+          const curOcc = curValues.length
+          if (curOcc > this.maxOcc) {
+            // fail this step:
+            // curValues.push({ stepType: 'filter', step: this, res: this.eventFromMsg(msg, 'error') })
+            errorText = `step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`
+          }
+        }
+        if (errorText !== undefined) {
+          curSeqOcc.failures.push(`step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`)
+          // pass this msgs to new sequence occurrence
+          if (this.canCreateNew) {
+            curSeqOcc = newOccurrence(msg, this)
+            const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, true, newOccurrence)
+            if (newUpdated) {
+              // in this case the log "...finished by ..." would be missing! TODO... move this log to here?
+              curSeqOcc = newOcc
+            }
+          }
+        }
+        return [true, curSeqOcc]
+      }
+    }
+    return [false, curSeqOcc]
+  }
+}
+
 // #region SeqStepAlt
 class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType> {
   private altSteps: SeqStep<DltFilterType>[]
@@ -1061,26 +1371,41 @@ class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
     this.altSteps = jsonStep.alt.map((altStep, idx) =>
       newSeqStep(
         { card: jsonStep.card, ...altStep, canCreateNew: this.canCreateNew },
-        `${stepPrefix}a${idx + 1}`,
+        `${stepPrefix.length > 0 ? stepPrefix + '.a' : 'a'}${idx + 1}`,
         stepNr,
         DltFilterConstructor,
       ),
     )
   }
 
-  isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean {
+  isFinished(occurrence: SeqOccurrence<DltFilterType>): boolean {
     // return if any alt step is finished
     return this.altSteps.some((step) => {
-      return step.isFinished(stepsResult)
+      return step.isFinished(occurrence)
     })
+  }
+
+  allowsMoreMatches(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const stepRes = occurrence.stepsResult.get(this)
+    if (stepRes !== undefined && (this.maxOcc === undefined || stepRes.length < this.maxOcc)) {
+      return true
+    }
+    return false
+  }
+
+  finalizeResults(): void {
+    super.finalizeResults()
+    // finalize results of all alt steps
+    this.altSteps.forEach((step) => step.finalizeResults())
   }
   processMsg(
     msg: ViewableDltMsg,
     curSeqOcc: SeqOccurrence<DltFilterType> | undefined,
     seqResult: FbSequenceResult,
+    haveOccurrence: boolean,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
-    if (curSeqOcc === undefined && !this.canCreateNew) {
+    if (!haveOccurrence && !this.canCreateNew) {
       return [false, curSeqOcc]
     }
     // pass the msg to alt steps and return the first one that matches
@@ -1089,7 +1414,7 @@ class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
     // this is only for card and mixed use-cases...
 
     for (const [idx, altStep] of this.altSteps.entries()) {
-      const [updated, newOcc] = altStep.processMsg(msg, curSeqOcc, seqResult, newOccurrence)
+      const [updated, newOcc] = altStep.processMsg(msg, curSeqOcc, seqResult, haveOccurrence, newOccurrence)
       if (updated) {
         // update seqResult for this step... we do mirror the result from the alt step
         // that updated/matched
@@ -1140,18 +1465,27 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
     this.filter = new DltFilterConstructor({ type: 3, ...jsonStep.filter })
   }
 
-  isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean {
-    const lastResult = stepsResult.get(this)
+  isFinished(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const lastResult = occurrence.stepsResult.get(this)
     return lastResult !== undefined
+  }
+
+  allowsMoreMatches(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const results = occurrence.stepsResult.get(this)
+    if (results !== undefined && (this.maxOcc === undefined || results.length < this.maxOcc)) {
+      return true
+    }
+    return false
   }
 
   processMsg(
     msg: ViewableDltMsg,
     curSeqOcc: SeqOccurrence<DltFilterType> | undefined,
     seqResult: FbSequenceResult,
+    haveOccurrence: boolean,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
-    if (curSeqOcc === undefined && !this.canCreateNew) {
+    if (!haveOccurrence && !this.canCreateNew) {
       return [false, curSeqOcc]
     }
     if (this.filter.matches(msg)) {
@@ -1164,7 +1498,6 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
       const value = 'ok'
 
       // update overall step value as max of ... and keep the msg determining that value
-      // todo... check cardinality minOcc/maxOcc... treat as failure if not exceeded
 
       // get cur value: (here only FbEvent[])
       let curValues: FbFilterStepRes[] | undefined = curSeqOcc.stepsResult.get(this) as unknown as FbFilterStepRes[] | undefined
@@ -1205,11 +1538,11 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
       }
       if (errorText !== undefined) {
         curValues.push({ stepType: 'filter', step: this, res: this.eventFromMsg(msg, 'error') })
-        curSeqOcc.failures.push(errorText)
+        curSeqOcc.failures.push(errorText) // TODO... added the error text twice?
         // pass this msgs to new sequence occurrence
         if (this.canCreateNew) {
           curSeqOcc = newOccurrence(msg, this)
-          const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, newOccurrence)
+          const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, true, newOccurrence)
           if (newUpdated) {
             // in this case the log "...finished by ..." would be missing! TODO... move this log to here?
             curSeqOcc = newOcc
@@ -1244,11 +1577,23 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
     this.sequence = new Sequence(stepPrefix.length > 0 ? `${stepPrefix}${stepNr}.` : `${stepNr}.`, jsonStep.sequence, DltFilterConstructor)
   }
 
-  isFinished(stepsResult: Map<SeqStep<DltFilterType>, SeqStepResult<DltFilterType>>): boolean {
-    const lastResult = stepsResult.get(this)
+  isFinished(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const lastResult = occurrence.stepsResult.get(this)
     return (
       lastResult !== undefined && lastResult.length > 0 && (lastResult[lastResult.length - 1] as SeqOccurrence<DltFilterType>).isFinished()
     )
+  }
+
+  allowsMoreMatches(occurrence: SeqOccurrence<DltFilterType>): boolean {
+    const results = occurrence.stepsResult.get(this)
+    if (this.maxOcc === undefined || results.length < this.maxOcc) {
+      return true
+    }
+    if (results.length === this.maxOcc) {
+      const lastSeqOcc = results[results.length - 1] as SeqOccurrence<DltFilterType>
+      return !lastSeqOcc.isFinished()
+    }
+    return false
   }
 
   /**
@@ -1263,9 +1608,10 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
     msg: ViewableDltMsg,
     curSeqOcc: SeqOccurrence<DltFilterType> | undefined,
     seqResult: FbSequenceResult,
+    haveOccurrence: boolean,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
-    if (curSeqOcc === undefined && !this.canCreateNew) {
+    if (!haveOccurrence && !this.canCreateNew) {
       return [false, curSeqOcc]
     }
     let curValues: SeqOccurrence<DltFilterType>[] | undefined = curSeqOcc?.stepsResult.get(this) as
@@ -1311,7 +1657,6 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
       return newOcc
     }
 
-    // todo other newOccurrence here!
     // const seqResult: FbSequenceResult = { sequence: this.sequence.jsonSeq, occurrences: [], logs: [] }
     const [updated, newOcc] = this.sequence.processMsg(msg, startedSeqOccurrence, seqResult, seqNewOccurrence)
     if (updated) {
@@ -1367,8 +1712,6 @@ export class Sequence<DltFilterType extends IDltFilter> {
     public jsonSeq: FBSequence,
     private DltFilterConstructor: new (json: any, allowEdits?: boolean) => DltFilterType,
   ) {
-    // todo do checks/preproc and throw errors if needed
-    // e.g if no filters for this sequence
     if (!this.jsonSeq.name || typeof this.jsonSeq.name !== 'string') {
       throw new Error(`SeqChecker: no name for sequence found! JSON=${JSON.stringify(this.jsonSeq)}`)
     }
@@ -1445,27 +1788,9 @@ export class Sequence<DltFilterType extends IDltFilter> {
       lastMatchedStep = this.steps.findLastIndex((step) => startedSeqOccurrence.stepsResult.get(step) !== undefined)
     }
     if (lastMatchedStep >= 0) {
-      const allowsMoreMatches = (step: SeqStep<DltFilterType>) => {
-        const stepRes = startedSeqOccurrence.stepsResult.get(step)
-        if (step instanceof SeqStepSequence) {
-          if (step.maxOcc === undefined || stepRes.length < step.maxOcc) {
-            return true
-          }
-          if (stepRes.length === step.maxOcc) {
-            const lastSeqOcc = stepRes[stepRes.length - 1] as SeqOccurrence<DltFilterType>
-            return !lastSeqOcc.isFinished()
-          }
-        } else {
-          if (stepRes !== undefined && (lastMatchedStepObj.maxOcc === undefined || stepRes.length < lastMatchedStepObj.maxOcc)) {
-            return true
-          }
-        }
-        return false
-      }
-
       // does this step allow for more matches?
       const lastMatchedStepObj = this.steps[lastMatchedStep]
-      if (allowsMoreMatches(lastMatchedStepObj)) {
+      if (lastMatchedStepObj.allowsMoreMatches(startedSeqOccurrence) /* allowsMoreMatches(lastMatchedStepObj)*/) {
         // continue with this step
       } else {
         // next one
@@ -1485,7 +1810,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
       lastMatchedStep > 0 ? [...this.steps.slice(lastMatchedStep), ...this.steps.slice(0, lastMatchedStep)] : this.steps
 
     for (const step of stepSearchArray) {
-      const [stepUpdated, newOcc] = step.processMsg(msg, startedSeqOccurrence, seqResult, newOccurrence)
+      const [stepUpdated, newOcc] = step.processMsg(msg, startedSeqOccurrence, seqResult, startedSeqOccurrence !== undefined, newOccurrence)
       if (stepUpdated) {
         updated = true
         const newSeqOcc = newOcc !== startedSeqOccurrence
@@ -1506,7 +1831,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
           }
         }
         break // only one step per msg
-      } // TODO break for after an update? or shall we let a msg update multiple steps?
+      }
     }
     return [updated, startedSeqOccurrence]
   }
