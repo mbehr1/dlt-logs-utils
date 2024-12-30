@@ -78,9 +78,12 @@ describe('SeqChecker', () => {
       steps,
     }
     const seqResult = processMsgs(jsonSeq, msgs)
-    expect(seqResult.occurrences).to.have.lengthOf(expected.length)
+    expect(seqResult.occurrences).to.have.lengthOf(
+      expected.length,
+      `occurrences: ${JSON.stringify(seqResult.occurrences.map((o) => o.result))}`,
+    )
     seqResult.occurrences.forEach((occ, idx) => {
-      expect(occ.result).to.equal(expected[idx], `occurrence ${idx} != ${expected[idx]}: ${JSON.stringify(occ)}`)
+      expect(occ.result).to.equal(expected[idx], `occurrence ${idx} != ${expected[idx]}: ${JSON.stringify(occ, undefined, 2)}`)
       expect(occ.stepsResult).to.have.lengthOf(steps.length)
       // check that each stepsResult matches the type of step:
       occ.stepsResult.forEach((stepRes, stepIdx) => {
@@ -316,6 +319,7 @@ describe('SeqChecker', () => {
     testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] }, card: '*' }, s2], [m1, m2], ['ok'])
   })
 
+  // #region alt(ernative) steps
   it('should support sequences with alt(ernative) steps', () => {
     testSeq([s1, { alt: [s2, s3] }], [m1, m2], ['ok'])
     testSeq([s1, { alt: [s2, s3] }], [m1, m3], ['ok'])
@@ -352,6 +356,50 @@ describe('SeqChecker', () => {
 
     // empty alt not allowed
     expect(() => testSeq([{ alt: [] }], [], [])).to.throw()
+  })
+
+  // #region par(arallel) steps
+  it('should handle par seq missing parameters', () => {
+    // par step with invalid filter, sequence or alt
+    expect(() => testSeq([{ par: [{ name: 'a' }] }], [], [])).to.throw()
+
+    // empty par not allowed
+    expect(() => testSeq([{ par: [] }], [], [])).to.throw()
+  })
+
+  it('should support sequences with par(allel) steps', () => {
+    testSeq([s1, { par: [s2, s3] }], [m1, m2, m3], ['ok'])
+    testSeq([s1, { par: [s2, s3] }], [m1, m3, m2], ['ok'])
+    testSeq([s1, { par: [s2, s3] }], [m1, m2], ['undefined'])
+    testSeq([s1, { par: [s2, s3] }], [m1, m3], ['undefined'])
+    testSeq([s1, { par: [s2, s3] }, s2], [m1, m2, m3], ['undefined'])
+    testSeq([{ par: [s2, s3] }, s1], [m1, m2, m3], ['error', 'undefined']) // wrong order
+    testSeq([{ par: [s2, s3] }, { ...s1, canCreateNew: false }], [m1, m2, m3], ['undefined']) // wrong order
+    testSeq([s1, { par: [s2, s3] }, s2], [m1, m2, m3, m2], ['ok'])
+    testSeq([{ par: [s2, s3] }], [m3, m2], ['ok'])
+    testSeq([{ par: [s2, s3] }, { par: [s2, s3] }], [m2, m3, m3, m2], ['ok'])
+    testSeq([{ par: [s2, s3], card: '*' }, s1], [m2, m3, m3, m2, m1], ['ok'])
+    testSeq([{ par: [s2, s3], card: '+' }, s1], [m2, m3, m3, m2, m1], ['ok'])
+    testSeq([{ par: [s2, s3], card: '+' }, s1], [m1], ['error'])
+    testSeq([{ par: [s2, s3], card: '?' }, s1], [m1], ['ok'])
+    testSeq([{ par: [s2, s3], card: '?' }, s1], [m2, m3, m1], ['ok'])
+    testSeq([{ ...s2, card: '?' }, s1], [m2, m2, m1], ['error', 'ok'])
+    testSeq([{ par: [s2, s3], card: '?' }, s1], [m2, m3, m2, m3, m1], ['error', 'ok'])
+    testSeq([{ par: [s2, { ...s3, card: '*' }], card: '?' }, s1], [m2, m3, m1], ['ok'])
+    testSeq([{ par: [s2, { ...s3, card: '*' }], card: '?' }, s1], [m2, m1], ['ok'])
+    testSeq([{ par: [s2, { ...s3, card: '*' }] }, s1], [m3, m3, m2, m1], ['ok'])
+    // next ones are tricky due to greedy-ness... (isFinished but could take one more...)
+    testSeq([{ ...s2, card: '+' }, s1], [m2, m2, m1], ['ok']) // works for filters but not for par
+    testSeq([{ par: [s2, { ...s3, card: '*' }] }, s1], [m3, m2, m3, m1], ['ok'])
+    testSeq([{ par: [s2, { ...s3, card: '*' }] }, s1], [m3, m2, m2, m1], ['error', 'ok'])
+    testSeq([{ par: [s2, { ...s3, card: '*' }] }, s1], [m3, m3, m2, m1], ['ok'])
+    // TODO: think about next one... we prefer non-greedy-ness. but it leads to ok,ok,ok
+    testSeq([{ par: [s2, { ...s3, card: '*' }], card: '+' }], [m3, m2, m2, m3, m2], ['ok', 'ok', 'ok'])
+    testSeq([{ par: [s2, { ...s3, card: '*' }], card: '+' }, s1], [m3, m2, m2, m3, m2, m1], ['ok'])
+
+    // single par step with canCreateNew:false
+    testSeq([{ par: [{ ...s2, canCreateNew: false }, s3] }], [m2, m3], ['undefined'])
+    testSeq([{ par: [{ ...s2, canCreateNew: false }, s3] }], [m3, m2], ['ok'])
   })
 
   // todo check for sub-sequences being out of order
