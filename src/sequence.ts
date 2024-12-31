@@ -457,7 +457,7 @@ export const nameFromStep = (step: FBSeqStep, defaultName: string): string => {
   if (typeof step !== 'object') {
     return defaultName
   }
-  return step.name || (step.filter && step.filter.name) || (step.sequence && step.sequence.name) || defaultName
+  return step.name || step.filter?.name || step.sequence?.name || defaultName
 }
 
 export interface FbEvent {
@@ -905,14 +905,18 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
           ? [
               {
                 stepType: 'filter',
-                step,
+                step: step.jsonStep,
                 res: { evType: 'step', summary: 'error', title: `mandatory step ${step.stepNr} missing`, timeStamp: 0 },
               },
             ]
           : []
       }
       // stepRes is of type SeqStepResult<_> = StepResult | SeqOccurrence<DltFilterType>[] = FbStepRes[] | SeqOccurrence<DltFilterType>[]
-      return stepRes.map((r) => (r.stepType === 'tmpSequence' ? { stepType: 'sequence', step, res: r.asFbSeqOccurrence() } : r))
+      return stepRes.map((r) =>
+        r.stepType === 'tmpSequence'
+          ? { stepType: 'sequence', step: step.jsonStep /*todo or this.step? */, res: r.asFbSeqOccurrence() }
+          : r,
+      )
     })
 
     return new FbSeqOccurrence(
@@ -1212,7 +1216,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
         if (res !== undefined && res.length > 0) {
           res = res.map((stepRes) => {
             if (stepRes.stepType === 'tmpSequence') {
-              return stepRes.asFbSeqOccurrence()
+              return { stepType: 'sequence', step: stepRes.step, res: stepRes.asFbSeqOccurrence() }
             }
             return stepRes
           })
@@ -1283,7 +1287,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
 
       const stepNewOccurrence = (msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> => {
         const newOcc = new SeqOccurrence(
-          step.jsonStep,
+          step.jsonStep, // NOTE this is wrong step (no sequence) but we don't use it anyhow
           prevStepOcc ? prevStepOcc.instance + 1 : 1,
           {
             evType: 'sequence', // or parStep? as it wont be reflected to outside anyhow. finalizeResults() will take only the results from it
@@ -1514,7 +1518,7 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
         const curOcc = curValues.length
         if (curOcc >= this.maxOcc) {
           // fail this step:
-          curValues.push({ stepType: 'filter', step: this, res: this.eventFromMsg(msg, 'error') })
+          curValues.push({ stepType: 'filter', step: this.jsonStep, res: this.eventFromMsg(msg, 'error') })
           curSeqOcc.failures.push(`step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`)
           errorText = `step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`
         }
@@ -1537,7 +1541,7 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
         }
       }
       if (errorText !== undefined) {
-        curValues.push({ stepType: 'filter', step: this, res: this.eventFromMsg(msg, 'error') })
+        curValues.push({ stepType: 'filter', step: this.jsonStep, res: this.eventFromMsg(msg, 'error') })
         curSeqOcc.failures.push(errorText) // TODO... added the error text twice?
         // pass this msgs to new sequence occurrence
         if (this.canCreateNew) {
@@ -1551,7 +1555,7 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
         return [true, curSeqOcc]
       }
 
-      curValues.push({ stepType: 'filter', step: this, res: this.eventFromMsg(msg, value) })
+      curValues.push({ stepType: 'filter', step: this.jsonStep, res: this.eventFromMsg(msg, value) })
       curSeqOcc.maxStepNr = Math.max(curSeqOcc.maxStepNr, this.stepNr) // max would not be necessary as we check upfront
       // not needed, Array updated in place... curSeqOcc.stepsResult.set(this, curValues)
       return [true, curSeqOcc] // updated curSeq
@@ -1574,7 +1578,7 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
     if (typeof jsonStep.sequence !== 'object') {
       throw new Error(`SeqStep#${stepPrefix}${stepNr}: no sequence for step found! JSON=${JSON.stringify(jsonStep)}`)
     }
-    this.sequence = new Sequence(stepPrefix.length > 0 ? `${stepPrefix}${stepNr}.` : `${stepNr}.`, jsonStep.sequence, DltFilterConstructor)
+    this.sequence = new Sequence(stepPrefix.length > 0 ? `${stepPrefix}.${stepNr}.` : `${stepNr}.`, jsonStep.sequence, DltFilterConstructor)
   }
 
   isFinished(occurrence: SeqOccurrence<DltFilterType>): boolean {
@@ -1629,7 +1633,7 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
 
     const seqNewOccurrence = (msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> => {
       const newOcc = new SeqOccurrence(
-        step.jsonStep, // TODO or the SeqStep instance?
+        this.jsonStep,
         curValues !== undefined ? curValues.length + 1 : 1,
         {
           evType: 'sequence',
@@ -1856,7 +1860,7 @@ export class SeqChecker<DltFilterType extends IDltFilter> {
 
   newOccurrence(msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> {
     const newOcc = new SeqOccurrence(
-      step.jsonStep, // TODO or the SeqStep instance?
+      this.jsonSeq,
       this.seqOccurrences.length + 1,
       {
         evType: 'sequence',

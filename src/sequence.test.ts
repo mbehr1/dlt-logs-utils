@@ -103,6 +103,12 @@ describe('SeqChecker', () => {
               expect(sr.stepType).to.be.oneOf(['sequence', 'filter'])
               // see TODO in sequence.ts SeqStepAlt.processMsg
               //expect(sr.stepType).to.equal('alt', `sr#${idx} ${JSON.stringify(sr, null, 2)}`)
+            } else if ('par' in step) {
+              if (sr.stepType === 'filter' && sr.res.summary === 'error') {
+                expect(sr.res.title).to.include('mandatory step') // missing
+              } else {
+                expect(sr.stepType).to.equal('par', `sr#${idx} ${JSON.stringify(sr, null, 2)}`)
+              }
             }
           })
         }
@@ -400,6 +406,9 @@ describe('SeqChecker', () => {
     // single par step with canCreateNew:false
     testSeq([{ par: [{ ...s2, canCreateNew: false }, s3] }], [m2, m3], ['undefined'])
     testSeq([{ par: [{ ...s2, canCreateNew: false }, s3] }], [m3, m2], ['ok'])
+
+    // par step with sub-sequence:
+    testSeq([{ par: [s1, { sequence: { name: 'sub-seq', steps: [s2] } }] }, s3], [m1, m2, m3], ['ok'])
   })
 
   // todo check for sub-sequences being out of order
