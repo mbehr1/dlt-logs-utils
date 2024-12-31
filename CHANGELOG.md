@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+## [0.9.1](https://github.com/mbehr1/dlt-logs-utils/compare/v0.9.0...v0.9.1) (2024-12-31)
+
+
+### Bug Fixes
+
+* **sequences:** result for par steps with sub sequences ([b9d4f82](https://github.com/mbehr1/dlt-logs-utils/commit/b9d4f826e05fd68b0daade4c4b578a9ca1fe83f1))
+
 # [0.9.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.8.1...v0.9.0) (2024-12-30)
 
 
