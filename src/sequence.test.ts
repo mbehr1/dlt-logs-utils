@@ -415,6 +415,70 @@ describe('SeqChecker', () => {
   })
 
   // todo check for sub-sequences being out of order
+
+  // #region par(arallel) steps
+  it('should check for ignoreOutOfOrder not after optional steps', () => {
+    expect(() => testSeq([o3_0_1, { ...s2, ignoreOutOfOrder: true }], [], [])).to.throw()
+  })
+  it('should support sequences with ignoreOutOfOrder steps', () => {
+    const i1 = { ...s1, ignoreOutOfOrder: true }
+    const i2 = { ...s2, ignoreOutOfOrder: true }
+    const i3 = { ...s3, ignoreOutOfOrder: true }
+    testSeq([i1, s2], [m1, m2], ['ok'])
+    testSeq([i1, s2], [m2, m1], ['error', 'undefined'])
+    testSeq([i1, s2], [m1, m2, m1], ['ok', 'undefined'])
+    testSeq([s1, i2], [m1, m2], ['ok'])
+    testSeq([s1, i2], [m1, m2, m2], ['ok'])
+    testSeq([s1, i2], [m2, m1, m2, m2], ['ok']) // here the 2nd is ignored as the seq is finished
+    // now an interesting one: the 3rd m2 is not ignored as it is in sequence (but card is exceeded)
+    testSeq([s1, i2, s3], [m2, m1, m2, m2, m3], ['error', 'error'])
+    // so test that case with card * or +:
+    let res = testSeq([s1, { ...i2, card: '*' }, s3], [m2, m1, m2, m2, m3], ['ok'])
+    expect(res.occurrences[0].stepsResult[1]).lengthOf(2)
+    res = testSeq([s1, { ...i2, card: '*' }, s3], [m2, m1, m3], ['ok'])
+    expect(res.occurrences[0].stepsResult[1]).lengthOf(0)
+    res = testSeq([s1, { ...i2, card: '+' }, s3], [m2, m1, m2, m2, m3], ['ok']) // two times i2
+    expect(res.occurrences[0].stepsResult[1]).lengthOf(2)
+    res = testSeq([s1, { ...i2, card: '+' }, s3], [m2, m1, m2, m3, m2], ['ok']) // one time i2
+    expect(res.occurrences[0].stepsResult[1]).lengthOf(1)
+
+    // now test with sub-sequence:
+    testSeq([s1, { sequence: { name: 'sub-seq', steps: [i2] } }, s3], [m1, m2, m3], ['ok'])
+    // here only the step inside has ignoreOutOfOrder but not the sequence itself
+    testSeq([s1, { sequence: { name: 'sub-seq', steps: [i2] } }, s3], [m2, m1, m2, m3], ['error', 'ok'])
+    testSeq([s1, { sequence: { name: 'sub-seq', steps: [s3, i2] } }, s3], [m2, m1, m3, m2, m3], ['ok'])
+    // now the sequence with ignoreOutOfOrder
+    testSeq([s1, { ignoreOutOfOrder: true, sequence: { name: 'sub-seq', steps: [i2] } }, s3], [m1, m2, m3], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, sequence: { name: 'sub-seq', steps: [s2] } }, s3], [m1, m2, m3], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, sequence: { name: 'sub-seq', steps: [s2] } }, s3], [m2, m1, m2, m3], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, sequence: { name: 'sub-seq', steps: [s2] } }, s3], [m2, m1, m2, m3, m2], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, sequence: { name: 'sub-seq', steps: [s3, i2] } }], [m2, m3, m1, m2, m3, m2, m2], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, sequence: { name: 'sub-seq', steps: [i2] } }, s3], [m2, m1, m2, m3], ['ok'])
+
+    // now test with par-sequence:
+    testSeq([{ par: [s1, i2] }, s3], [m1, m2, m3], ['ok'])
+    testSeq([{ par: [s1, i2] }, s3], [m2, m1, m3], ['ok'])
+    testSeq([{ par: [s1, i2] }, s3], [m2, m1, m2, m3], ['error', 'error']) // the 2nd m2 is not ignored
+    testSeq([s1, { par: [i2, s3] }], [m2, m1, m3, m2], ['ok']) // first m2 is ignored
+    testSeq([s1, { par: [i2, s3] }], [m2, m1, m2, m3], ['ok']) // first m2 is ignored
+    testSeq([s1, { par: [s2, i3] }], [m2, m1, m3], ['error', 'undefined'])
+
+    // now test with par-sequence with ignoreOutOfOrder:
+    testSeq([s1, { ignoreOutOfOrder: true, par: [s2, s3] }], [m2, m1, m2, m3], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, par: [s2, s3] }], [m3, m2, m1, m2, m3], ['ok'])
+
+    // now test with alt-sequence:
+    testSeq([{ alt: [s1, i2] }], [m1], ['ok'])
+    testSeq([{ alt: [s1, i2] }], [m2], ['ok'])
+    testSeq([s1, { alt: [s2, i3] }], [m1, m2], ['ok'])
+    testSeq([s1, { alt: [s2, i3] }], [m2, m1], ['error', 'undefined'])
+    testSeq([s1, { alt: [s2, i3] }], [m3, m1, m2], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, alt: [s2, s3] }], [m3, m1, m2], ['ok'])
+    testSeq([s1, { ignoreOutOfOrder: true, alt: [s2, s3] }], [m2, m1, m3], ['ok'])
+    // now test with alt-sequence with ignoreOutOfOrder:
+    testSeq([{ ignoreOutOfOrder: true, alt: [s1, s2] }, s3, s4], [m2, m3, m4, m1, m3, m4], ['ok', 'ok'])
+    testSeq([{ ignoreOutOfOrder: true, alt: [s1, s2] }, s3, s4], [m2, m3, m4, m3, m1, m4], ['ok', 'error'])
+  })
 })
 
 describe('getCaptures', () => {

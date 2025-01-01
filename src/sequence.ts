@@ -451,6 +451,15 @@ export interface FBSeqStep {
    * Defaults to true (if not provided)
    */
   canCreateNew?: boolean
+  /**
+   * ignoreOutOfOrder: if true, any matches/occurrences of this step that are out of order/sequence are ignored.
+   * @defaultValue `false` (if not provided)
+   *
+   * @remarks can not be used if:
+   * - the previous step is optional.
+   * - (TODO???) should not be used on the single parallel steps but on the parallel step itself.
+   */
+  ignoreOutOfOrder?: boolean
 }
 
 export const nameFromStep = (step: FBSeqStep, defaultName: string): string => {
@@ -1129,6 +1138,10 @@ abstract class SeqStep<DltFilterType extends IDltFilter> {
     return this.jsonStep.canCreateNew != false
   }
 
+  get ignoreOutOfOrder(): boolean {
+    return this.jsonStep.ignoreOutOfOrder === true
+  }
+
   eventFromMsg(msg: ViewableDltMsg, result: string): FbEvent {
     return {
       evType: 'step',
@@ -1292,7 +1305,15 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
     // type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes
     // type SeqStepResult<DltFilterT...> = StepResult | SeqOccurrence<DltFilterType>[]
 
-    if (!haveOccurrence && !this.canCreateNew) {
+    if (!haveOccurrence && (!this.canCreateNew || (this.ignoreOutOfOrder && this.stepNr > 1))) {
+      return [false, curSeqOcc]
+    }
+    if (
+      this.ignoreOutOfOrder &&
+      haveOccurrence &&
+      curSeqOcc !== undefined &&
+      (curSeqOcc.maxStepNr > this.stepNr || curSeqOcc.maxStepNr < this.stepNr - 1)
+    ) {
       return [false, curSeqOcc]
     }
     let curValues = curSeqOcc?.stepsResult.get(this) as FbParStepRes[] | undefined
@@ -1376,7 +1397,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
         if (errorText !== undefined) {
           curSeqOcc.failures.push(`step #${this.stepPrefix}${this.stepNr} exceeded max cardinality ${this.maxOcc}`)
           // pass this msgs to new sequence occurrence
-          if (this.canCreateNew) {
+          if (this.canCreateNew && !(this.ignoreOutOfOrder && this.stepNr > 1)) {
             curSeqOcc = newOccurrence(msg, this)
             const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, true, newOccurrence)
             if (newUpdated) {
@@ -1447,7 +1468,15 @@ class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
     haveOccurrence: boolean,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
-    if (!haveOccurrence && !this.canCreateNew) {
+    if (!haveOccurrence && (!this.canCreateNew || (this.ignoreOutOfOrder && this.stepNr > 1))) {
+      return [false, curSeqOcc]
+    }
+    if (
+      this.ignoreOutOfOrder &&
+      haveOccurrence &&
+      curSeqOcc !== undefined &&
+      (curSeqOcc.maxStepNr > this.stepNr || curSeqOcc.maxStepNr < this.stepNr - 1)
+    ) {
       return [false, curSeqOcc]
     }
     // pass the msg to alt steps and return the first one that matches
@@ -1527,7 +1556,15 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
     haveOccurrence: boolean,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
-    if (!haveOccurrence && !this.canCreateNew) {
+    if (!haveOccurrence && (!this.canCreateNew || (this.ignoreOutOfOrder && this.stepNr > 1))) {
+      return [false, curSeqOcc]
+    }
+    if (
+      this.ignoreOutOfOrder &&
+      haveOccurrence &&
+      curSeqOcc !== undefined &&
+      (curSeqOcc.maxStepNr > this.stepNr || curSeqOcc.maxStepNr < this.stepNr - 1)
+    ) {
       return [false, curSeqOcc]
     }
     if (this.filter.matches(msg)) {
@@ -1582,7 +1619,7 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
         curValues.push({ stepType: 'filter', step: this.jsonStep, res: this.eventFromMsg(msg, 'error') })
         curSeqOcc.failures.push(errorText) // TODO... added the error text twice?
         // pass this msgs to new sequence occurrence
-        if (this.canCreateNew) {
+        if (this.canCreateNew && !(this.ignoreOutOfOrder && this.stepNr > 1)) {
           curSeqOcc = newOccurrence(msg, this)
           const [newUpdated, newOcc] = this.processMsg(msg, curSeqOcc, seqResult, true, newOccurrence)
           if (newUpdated) {
@@ -1653,7 +1690,15 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
     haveOccurrence: boolean,
     newOccurrence: (msg: ViewableDltMsg, step: SeqStep<DltFilterType>) => SeqOccurrence<DltFilterType>,
   ): [boolean, SeqOccurrence<DltFilterType> | undefined] {
-    if (!haveOccurrence && !this.canCreateNew) {
+    if (!haveOccurrence && (!this.canCreateNew || (this.ignoreOutOfOrder && this.stepNr > 1))) {
+      return [false, curSeqOcc]
+    }
+    if (
+      this.ignoreOutOfOrder &&
+      haveOccurrence &&
+      curSeqOcc !== undefined &&
+      (curSeqOcc.maxStepNr > this.stepNr || curSeqOcc.maxStepNr < this.stepNr - 1)
+    ) {
       return [false, curSeqOcc]
     }
     let curValues: SeqOccurrence<DltFilterType>[] | undefined = curSeqOcc?.stepsResult.get(this) as
@@ -1762,7 +1807,19 @@ export class Sequence<DltFilterType extends IDltFilter> {
       throw new Error(`SeqChecker: steps not an array for sequence '${this.jsonSeq.name}'! JSON=${JSON.stringify(this.jsonSeq)}`)
     }
     for (const [idx, step] of this.jsonSeq.steps.entries()) {
-      this.steps.push(newSeqStep(step, stepPrefix, idx + 1, DltFilterConstructor))
+      const newStep = newSeqStep(step, stepPrefix, idx + 1, DltFilterConstructor)
+      // check for ignoreOutOfOrder rules:
+      if (newStep.ignoreOutOfOrder && idx > 0) {
+        // check that the prev. step is mandatory
+        if (!this.steps[idx - 1].isMandatory()) {
+          throw new Error(
+            `SeqChecker: ignoreOutOfOrder for step #${stepPrefix}${
+              idx + 1
+            } is only allowed if the prev. step is mandatory! JSON=${JSON.stringify(step)}`,
+          )
+        }
+      }
+      this.steps.push(newStep)
     }
 
     if (this.steps.length > 0 && !this.steps[0].canCreateNew) {
