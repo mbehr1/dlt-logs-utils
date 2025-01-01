@@ -661,6 +661,42 @@ const asCollapsable = (summary: string, content: string): Html => {
   }
 }
 
+/**
+ * Escape a text for usage in markdown and html
+ * @param text - to be escaped for usage in markdown and html
+ * @returns text with escaped characters
+ */
+
+export const escapeForMD = (text: string): string => {
+  if (typeof text !== 'string') {
+    return `text(${JSON.stringify(text)}) is not a string but a '${typeof text}'`
+  }
+  return text.replace(
+    /[\\\`*_{}\[\]<>()#+-.!|&]/g,
+    (match) =>
+      ({
+        '\\': '\\\\',
+        '`': '\\`',
+        '*': '\\*',
+        _: '\\_',
+        '{': '\\{',
+        '}': '\\}',
+        '[': '\\[',
+        ']': '\\]',
+        '<': '&lt;', // we use that to escape html as well
+        '>': '&gt;', // we use that to escape html as well
+        '(': '\\(',
+        ')': '\\)',
+        '#': '\\#',
+        '+': '\\+',
+        '-': '\\-',
+        '.': '\\.',
+        '!': '\\!',
+        '|': '\\|',
+        '&': '&amp;', // would not be needed in markdown but we use it for html as well
+      }[match]),
+  )
+}
 // #region seqResultToMdAst
 export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => {
   const resultAsMd: RootContent[] = []
@@ -721,14 +757,14 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
           stepsResult
             .map((res, stepIdx) => {
               if (res.length === 0) {
-                return `<td>✔️</td><td>${stepIdx + 1}</td><td>${nameFromStep(steps[stepIdx], '')}</td><td></td><td></td>`
+                return `<td>✔️</td><td>${stepIdx + 1}</td><td>${escapeForMD(nameFromStep(steps[stepIdx], ''))}</td><td></td><td></td>`
               } else {
                 return res.map((r) => {
                   if (r.stepType === 'sequence') {
-                    const stepName = nameFromStep(r.step, nameFromStep(steps[stepIdx], ''))
-                    let msg = `<td>${resAsEmoji(r.res.result)}</td><td>${stepIdx + 1}</td><td>${stepName}</td><td>${r.res.result}</td><td>${
-                      r.res.startEvent.msgText ? r.res.startEvent.msgText : ''
-                    }`
+                    const stepName = escapeForMD(nameFromStep(r.step, nameFromStep(steps[stepIdx], '')))
+                    let msg = `<td>${resAsEmoji(r.res.result)}</td><td>${stepIdx + 1}</td><td>${stepName}</td><td>${escapeForMD(
+                      r.res.result,
+                    )}</td><td>${r.res.startEvent.msgText ? escapeForMD(r.res.startEvent.msgText) : ''}`
                     // summary the graphical overview of the steps and in next line the startEvent.msgText
                     // TODO: this looks bad (r.step.sequence?...)
                     msg += `<br>${
@@ -736,27 +772,27 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
                         .value
                     }`
                     if (r.res.failures.length > 0) {
-                      msg += `<br>${r.res.failures.length} failures:<br>${r.res.failures.join('<br>')}`
+                      msg += `<br>${r.res.failures.length} failures:<br>${r.res.failures.map(escapeForMD).join('<br>')}`
                     }
                     if (r.res.context.length > 0) {
-                      msg += `<br>${r.res.context.map(([name, value]) => `${name}: ${value}`).join('<br>')}`
+                      msg += `<br>${r.res.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>')}`
                     }
                     msg += `</td>`
                     return msg
                   } else if (r.stepType === 'par') {
-                    const stepName = nameFromStep(r.step, nameFromStep(steps[stepIdx], ''))
+                    const stepName = escapeForMD(nameFromStep(r.step, nameFromStep(steps[stepIdx], '')))
                     const startEvent = startEventForStepRes(r)
                     const summary = summaryForStepRes(r)
                     let msg = `<td>${resAsEmoji(summary)}</td><td>${stepIdx + 1}</td><td>${stepName}</td><td>${summary}</td><td>${
-                      startEvent?.msgText ? startEvent.msgText : ''
+                      startEvent?.msgText ? escapeForMD(startEvent.msgText) : ''
                     }`
                     msg += `<br>${stepsAsHtml('parallel: ', r.res, r.step.par).value}`
                     msg += `</td>`
                     return msg
                   } else {
-                    const stepName = nameFromStep(r.step, '') // TODO for alt from the alt[idx] //  || nameFromStep(sequence.steps[stepIdx], '')
+                    const stepName = escapeForMD(nameFromStep(r.step, '')) // TODO for alt from the alt[idx] //  || nameFromStep(sequence.steps[stepIdx], '')
                     const summary = summaryForStepRes(r)
-                    const msg = msgForStepRes(r)
+                    const msg = escapeForMD(msgForStepRes(r))
                     return `<td>${resAsEmoji(summary)}</td><td>${stepIdx + 1}</td><td>${stepName}</td><td>${summary}</td><td>${msg}</td>`
                   }
                 })
@@ -774,11 +810,11 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
           ? (occ.startEvent.lifecycle as undefined as number).toString()
           : occ.startEvent.lifecycle.persistentId.toString()
         : '', // todo the persistent id is not the one from adlt convert if adlt is started locally and port is used.
-      occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '<notime>',
+      occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '_notime_',
       typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
-      occ.context.length > 0 ? occ.context.map(([name, value]) => `${name}: ${value}`).join('<br>') : '', // todo html encode! e.g. using https://github.com/component/escape-html/blob/master/index.js
+      occ.context.length > 0 ? occ.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>') : '',
       stepsAsHtml('', occ.stepsResult, seqResult.sequence.steps),
-      occ.failures.length > 0 ? occ.failures.join('\n') : '',
+      occ.failures.length > 0 ? occ.failures.map(escapeForMD).join('\n') : '',
     ])
   }
 
