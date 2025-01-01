@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [0.10.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.9.2...v0.10.0) (2025-01-01)
+
+
+### Bug Fixes
+
+* **sequences:** par steps didn't update the maxStepNr ([39b736c](https://github.com/mbehr1/dlt-logs-utils/commit/39b736c300d6ad1d687cde718e27bac2eb7af9b5))
+
+
+### Features
+
+* **sequences:** add step attribute ignoreOutOfOrder ([9958920](https://github.com/mbehr1/dlt-logs-utils/commit/99589205df2d61a374e915b5f145d45296af0d39))
+
 ## [0.9.2](https://github.com/mbehr1/dlt-logs-utils/compare/v0.9.1...v0.9.2) (2025-01-01)
 
 

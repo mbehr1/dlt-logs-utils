@@ -1,6 +1,6 @@
 {
   "name": "dlt-logs-utils",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "license": "MIT",
   "description": "Utils for DLT-Logs VS-Code extension",
   "main": "dist/index.js",
