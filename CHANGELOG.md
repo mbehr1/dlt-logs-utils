@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+## [0.9.2](https://github.com/mbehr1/dlt-logs-utils/compare/v0.9.1...v0.9.2) (2025-01-01)
+
+
+### Bug Fixes
+
+* **sequences:** escape markdown characters ([2e419ea](https://github.com/mbehr1/dlt-logs-utils/commit/2e419ea31f7bc66b3d5390c9124194024ab4ee59))
+
 ## [0.9.1](https://github.com/mbehr1/dlt-logs-utils/compare/v0.9.0...v0.9.1) (2024-12-31)
 
 
