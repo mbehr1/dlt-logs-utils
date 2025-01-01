@@ -1,6 +1,7 @@
 import { expect } from 'chai'
 import {
   DltFilter,
+  escapeForMD,
   FbEvent,
   FbSeqOccurrence,
   FBSeqStep,
@@ -426,5 +427,15 @@ describe('getCaptures', () => {
     expect(captures!['_g1']).to.equal('456')
     expect(captures!.g2).to.equal('123')
     expect(Object.keys(captures!)).to.have.lengthOf(2)
+  })
+})
+
+describe('escapeForMD', () => {
+  it('should escape markdown special chars', () => {
+    const str = 'this is a *test* _string_ with `special` chars \\ * _ {} [] <> () # + - . !| &'
+    const escaped = escapeForMD(str)
+    expect(escaped).to.equal(
+      'this is a \\*test\\* \\_string\\_ with \\`special\\` chars \\\\ \\* \\_ \\{\\} \\[\\] &lt;&gt; \\(\\) \\# \\+ \\- \\. \\!\\| &amp;',
+    )
   })
 })
