@@ -421,7 +421,7 @@ export interface FBSequence {
 // #region FBSeqStep
 export interface FBSeqStep {
   /**
-   * either a filter, sequence or alt is needed!
+   * either a filter, sequence, alt or par is needed!
    */
   filter?: Filter
   sequence?: FBSequence
@@ -601,6 +601,7 @@ export const startEventForStepRes = (stepResult: FbStepRes): FbEvent | undefined
     case 'alt':
       return startEventForStepRes(stepResult.res)
     case 'par': {
+      // TODO optimize with for loop... instead of iterating through all results! (sadly iterator flatMap is only in nodejs 22 but vscode still ships with 20.18.1)
       // return the first of the par steps? (or a concat of the first ones)
       const startEvents = stepResult.res
         .flat()
@@ -1384,6 +1385,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
             }
           }
         }
+        curSeqOcc.maxStepNr = Math.max(curSeqOcc.maxStepNr, this.stepNr)
         return [true, curSeqOcc]
       }
     }

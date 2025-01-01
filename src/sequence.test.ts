@@ -377,6 +377,8 @@ describe('SeqChecker', () => {
   it('should support sequences with par(allel) steps', () => {
     testSeq([s1, { par: [s2, s3] }], [m1, m2, m3], ['ok'])
     testSeq([s1, { par: [s2, s3] }], [m1, m3, m2], ['ok'])
+    testSeq([s1, { par: [s3, s2] }], [m2, m1, m3], ['error', 'undefined'])
+    testSeq([s1, { par: [s2, s3] }], [m2, m1, m3], ['error', 'undefined'])
     testSeq([s1, { par: [s2, s3] }], [m1, m2], ['undefined'])
     testSeq([s1, { par: [s2, s3] }], [m1, m3], ['undefined'])
     testSeq([s1, { par: [s2, s3] }, s2], [m1, m2, m3], ['undefined'])
