@@ -65,11 +65,11 @@ describe('SeqChecker', () => {
   const processMsgs = (seq: FBSequence, msgs: ViewableDltMsg[]): FbSequenceResult => {
     const seqResult = newFbSeqResult(seq)
     const seqChecker = new SeqChecker(seq, seqResult, DltFilter)
-    seqChecker.processMsgs(
-      msgs.map((m, idx) => {
-        return { ...m, index: idx + 1 }
-      }),
-    )
+    const idxedMsgs = msgs.map((m, idx) => {
+      return { ...m, index: idx + 1 }
+    })
+    seqChecker.processMsgs(idxedMsgs)
+
     return seqResult
   }
 
@@ -478,6 +478,10 @@ describe('SeqChecker', () => {
     // now test with alt-sequence with ignoreOutOfOrder:
     testSeq([{ ignoreOutOfOrder: true, alt: [s1, s2] }, s3, s4], [m2, m3, m4, m1, m3, m4], ['ok', 'ok'])
     testSeq([{ ignoreOutOfOrder: true, alt: [s1, s2] }, s3, s4], [m2, m3, m4, m3, m1, m4], ['ok', 'error'])
+
+    // error cases reported with v0.10.0: (Cannot read properties of undefined (reading 'stepType'))
+    testSeq([s1, { par: [s2] }, { ...s3, canCreateNew: false }], [m2, m3, m3], ['error']) // that one is ok
+    testSeq([s1, { par: [s2] }, { ...s3, canCreateNew: false }, s4], [m2, m3, m3], ['error']) // that one did fails on v0.10.0
   })
 })
 
