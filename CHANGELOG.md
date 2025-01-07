@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+## [0.10.1](https://github.com/mbehr1/dlt-logs-utils/compare/v0.10.0...v0.10.1) (2025-01-07)
+
+
+### Bug Fixes
+
+* **sequences:** prevent accessing stepResults before being finalized ([ce355f2](https://github.com/mbehr1/dlt-logs-utils/commit/ce355f28842c86342e0a87014dbc817de03ed184))
+
 # [0.10.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.9.2...v0.10.0) (2025-01-01)
 
 
