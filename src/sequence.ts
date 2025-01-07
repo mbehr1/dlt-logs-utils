@@ -457,7 +457,6 @@ export interface FBSeqStep {
    *
    * @remarks can not be used if:
    * - the previous step is optional.
-   * - (TODO???) should not be used on the single parallel steps but on the parallel step itself.
    */
   ignoreOutOfOrder?: boolean
 }
@@ -983,9 +982,8 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
     // if any failure -> error
     // otherwise "max" of all steps. per step:
     // error, warning, undefined, ok
-    if (this.failures.length > 0) {
-      return 'error'
-    }
+
+    // but first we do need to finalize the results of the steps
     const stepResults = this.steps.map((step) => {
       step.finalizeResults()
       const result = this.stepsResult.get(step)
@@ -1004,6 +1002,10 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
         return acc
       }, 'ok')
     })
+
+    if (this.failures.length > 0) {
+      return 'error'
+    }
 
     if (stepResults.includes('error')) {
       return 'error'
