@@ -681,7 +681,7 @@ export const escapeForMD = (text: string): string => {
     return `text(${JSON.stringify(text)}) is not a string but a '${typeof text}'`
   }
   return text.replace(
-    /[\\\`*_{}\[\]<>()#+-.!|&]/g,
+    /[\\\`*_{}\[\]<>()#\+\-\.!|&]/g,
     (match) =>
       ({
         '\\': '\\\\',

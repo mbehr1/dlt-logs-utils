@@ -508,4 +508,9 @@ describe('escapeForMD', () => {
       'this is a \\*test\\* \\_string\\_ with \\`special\\` chars \\\\ \\* \\_ \\{\\} \\[\\] &lt;&gt; \\(\\) \\# \\+ \\- \\. \\!\\| &amp;',
     )
   })
+  it('should not escape non markdown special chars', () => {
+    const str = '[10,03,FFFF-FFFF]'
+    const escaped = escapeForMD(str)
+    expect(escaped).to.equal('\\[10,03,FFFF\\-FFFF\\]')
+  })
 })
