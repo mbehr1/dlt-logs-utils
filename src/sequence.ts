@@ -821,9 +821,11 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
         : '', // todo the persistent id is not the one from adlt convert if adlt is started locally and port is used.
       occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '_notime_',
       typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
-      occ.context.length > 0 ? occ.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>') : '',
+      occ.context.length > 0
+        ? { type: 'html', value: occ.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>') }
+        : '',
       stepsAsHtml('', occ.stepsResult, seqResult.sequence.steps),
-      occ.failures.length > 0 ? occ.failures.map(escapeForMD).join('\n') : '',
+      occ.failures.length > 0 ? { type: 'html', value: occ.failures.map(escapeForMD).join('<br>') } : '',
     ])
   }
 
