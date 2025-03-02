@@ -673,7 +673,7 @@ const asCollapsable = (summary: string, content: string): Html => {
 /**
  * Escape a text for usage in markdown and html
  * @param text - to be escaped for usage in markdown and html
- * @returns text with escaped characters
+ * @returns text with escaped characters using the &#...; notation
  */
 
 export const escapeForMD = (text: string): string => {
@@ -684,24 +684,24 @@ export const escapeForMD = (text: string): string => {
     /[\\\`*_{}\[\]<>()#\+\-\.!|&]/g,
     (match) =>
       ({
-        '\\': '\\\\',
-        '`': '\\`',
-        '*': '\\*',
-        _: '\\_',
-        '{': '\\{',
-        '}': '\\}',
-        '[': '\\[',
-        ']': '\\]',
+        '\\': '&#92;',
+        '`': '&#96;',
+        '*': '&#42;',
+        _: '&#95;',
+        '{': '&#123;',
+        '}': '&#125;',
+        '[': '&#91;',
+        ']': '&#93;',
         '<': '&lt;', // we use that to escape html as well
         '>': '&gt;', // we use that to escape html as well
-        '(': '\\(',
-        ')': '\\)',
-        '#': '\\#',
-        '+': '\\+',
-        '-': '\\-',
-        '.': '\\.',
-        '!': '\\!',
-        '|': '\\|',
+        '(': '&#40;',
+        ')': '&#41;',
+        '#': '&#35;',
+        '+': '&#43;',
+        '-': '&#45;',
+        '.': '&#46;',
+        '!': '&#33;',
+        '|': '&#124;', // this works in markdown tables as well
         '&': '&amp;', // would not be needed in markdown but we use it for html as well
       }[match]),
   )
