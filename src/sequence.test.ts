@@ -505,12 +505,12 @@ describe('escapeForMD', () => {
     const str = 'this is a *test* _string_ with `special` chars \\ * _ {} [] <> () # + - . !| &'
     const escaped = escapeForMD(str)
     expect(escaped).to.equal(
-      'this is a \\*test\\* \\_string\\_ with \\`special\\` chars \\\\ \\* \\_ \\{\\} \\[\\] &lt;&gt; \\(\\) \\# \\+ \\- \\. \\!\\| &amp;',
+      'this is a &#42;test&#42; &#95;string&#95; with &#96;special&#96; chars &#92; &#42; &#95; &#123;&#125; &#91;&#93; &lt;&gt; &#40;&#41; &#35; &#43; &#45; &#46; &#33;&#124; &amp;',
     )
   })
   it('should not escape non markdown special chars', () => {
-    const str = '[10,03,FFFF-FFFF]'
+    const str = '[10,03,FFFF-FFFF]' // , should not be escaped
     const escaped = escapeForMD(str)
-    expect(escaped).to.equal('\\[10,03,FFFF\\-FFFF\\]')
+    expect(escaped).to.equal('&#91;10,03,FFFF&#45;FFFF&#93;')
   })
 })
