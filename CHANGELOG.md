@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [0.11.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.10.4...v0.11.0) (2025-04-02)
+
+
+### Features
+
+* **sequence:** support globalFilters array for main sequence ([6855b59](https://github.com/mbehr1/dlt-logs-utils/commit/6855b599cdbf773edd0ee70ac4648357f70be395))
+
 ## [0.10.4](https://github.com/mbehr1/dlt-logs-utils/compare/v0.10.3...v0.10.4) (2025-03-02)
 
 
