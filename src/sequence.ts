@@ -416,6 +416,12 @@ export interface FBSequence {
   name: string
   steps: FBSeqStep[]
   failures?: Record<string, Filter>
+  /**
+   * array of filters that are added to the sequence. Intention is to e.g.
+   * apply negative filters for a specific ecu.
+   * Global filters can not be used in sub-sequences!
+   */
+  globalFilters?: Filter[]
 }
 
 // #region FBSeqStep
@@ -902,9 +908,10 @@ const filterFromStep = (step: FBSeqStep): Filter[] => {
  * @returns all filters from the sequence incl. the filters from steps and failures
  */
 const filterFromSeq = (seq: FBSequence): Filter[] => {
+  const globalFilters = seq.globalFilters && Array.isArray(seq.globalFilters) ? seq.globalFilters : []
   const filterFromFailures = seq.failures ? Object.entries(seq.failures).map(([_, filter]) => filter) : []
   const filtersFromSteps = seq.steps ? seq.steps.map(filterFromStep).flat() : []
-  return [...filterFromFailures, ...filtersFromSteps]
+  return [...globalFilters, ...filterFromFailures, ...filtersFromSteps]
 }
 
 type SeqStepResult<DltFilterType extends IDltFilter> = StepResult | SeqOccurrence<DltFilterType>[]
@@ -1656,6 +1663,10 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
     super(stepPrefix, stepNr, jsonStep, DltFilterConstructor)
     if (typeof jsonStep.sequence !== 'object') {
       throw new Error(`SeqStep#${stepPrefix}${stepNr}: no sequence for step found! JSON=${JSON.stringify(jsonStep)}`)
+    }
+    // allow no globalFilters in sub-sequences:
+    if (Array.isArray(jsonStep.sequence.globalFilters) && jsonStep.sequence.globalFilters.length > 0) {
+      throw new Error(`SeqChecker: sub-sequence with globalFilters not allowed for step #${stepPrefix}${stepNr}`)
     }
     this.sequence = new Sequence(stepPrefix.length > 0 ? `${stepPrefix}.${stepNr}.` : `${stepNr}.`, jsonStep.sequence, DltFilterConstructor)
   }
