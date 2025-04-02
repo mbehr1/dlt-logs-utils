@@ -152,6 +152,34 @@ describe('SeqChecker', () => {
     expect(seqChecker.getAllFilters()).to.have.length(4)
   })
 
+  it('getAllFilters should include filters from globalFilters as first ones', () => {
+    const f5 = new DltFilter({ type: 3, apid: '5' })
+    const f6 = new DltFilter({ type: 3, apid: '6' })
+
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4], globalFilters: [] } }, s2],
+      globalFilters: [f5, f6],
+    }
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    expect(seqChecker.getAllFilters()).to.have.length(6)
+    expect(seqChecker.getAllFilters()).to.eql([f5, f6, s1.filter, s3.filter, s4.filter, s2.filter])
+  })
+
+  it('globalFilters in sub-sequences should be rejected', () => {
+    const f7 = new DltFilter({ type: 3, apid: '7' })
+
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, { sequence: { name: 'sub seq 1', steps: [s3, s4], globalFilters: [f7] } }, s2],
+    }
+    const seqResult = newFbSeqResult(jsonSeq)
+    expect(() => new SeqChecker(jsonSeq, seqResult, DltFilter)).to.throw()
+  })
+
+
   it('should detect a simple sequence', () => {
     const jsonSeq: FBSequence = {
       name: 'seq1',
