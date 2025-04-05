@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [0.12.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.11.0...v0.12.0) (2025-04-05)
+
+
+### Bug Fixes
+
+* **DltFilter:** support regex for ecu, apid, ctid ([d170fe4](https://github.com/mbehr1/dlt-logs-utils/commit/d170fe484e9cbb0e639764e29bda562ddc1d7c48))
+
+
+### Features
+
+* support fishbone attributes parsing ([483ba1c](https://github.com/mbehr1/dlt-logs-utils/commit/483ba1cabd5783c88e10f07acc4f5c1fb311a5ab))
+
 # [0.11.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.10.4...v0.11.0) (2025-04-02)
 
 
