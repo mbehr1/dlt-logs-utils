@@ -108,18 +108,18 @@ export const substFilterAttributes = (filters: any[], getAttr: (attr: string) =>
 
 // #region fishbone attributes
 // definition in fishbones... re-copied to here to avoid importing the whole
-// TODO: refactor into a fishbone-utils package
-interface FBAttribute {
-  fbUid?: string
+// simplified to the data structure needed for querying the attribute values
+export interface AttributeMinIF {
+  // not needed fbUid?: string
   [name: string]:
     | {
-        label?: string
-        type?: string
+        // label?: string
+        // type?: string
         value?: any
-        dataProvider?: {
-          jsonPath: string
-          source: string
-        }
+        //dataProvider?: {
+        //  jsonPath: string
+        //  source: string
+        // }
       }
     | string // for fbUid only
 }
@@ -132,7 +132,7 @@ interface FBAttribute {
  * @param attribute - the arribute name to be searched for. Can be a member e.g. lifecycles.id or just the attribute name like ecu
  * @returns - the attribute value or undefined if not found
  */
-export const getAttributeFromFba = (fbaAttrs: FBAttribute[], attribute: string): AttributesValue => {
+export const getAttributeFromFba = (fbaAttrs: AttributeMinIF[], attribute: string): AttributesValue => {
   if (Array.isArray(fbaAttrs)) {
     // iterate over all attributes and check if the attribute is in there
     // it can be attributename.member e.g. lifecycles.id or attributename like ecu
