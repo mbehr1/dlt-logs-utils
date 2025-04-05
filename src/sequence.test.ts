@@ -1,5 +1,6 @@
 import { expect } from 'chai'
 import {
+  containsRegexChars,
   DltFilter,
   escapeForMD,
   FbEvent,
@@ -178,7 +179,6 @@ describe('SeqChecker', () => {
     const seqResult = newFbSeqResult(jsonSeq)
     expect(() => new SeqChecker(jsonSeq, seqResult, DltFilter)).to.throw()
   })
-
 
   it('should detect a simple sequence', () => {
     const jsonSeq: FBSequence = {
@@ -540,5 +540,152 @@ describe('escapeForMD', () => {
     const str = '[10,03,FFFF-FFFF]' // , should not be escaped
     const escaped = escapeForMD(str)
     expect(escaped).to.equal('&#91;10,03,FFFF&#45;FFFF&#93;')
+  })
+})
+
+describe('DltFilter', () => {
+  it('should support ecu filter', () => {
+    const f = new DltFilter({ type: 0, ecu: 'ECU1' })
+
+    const m1 = { ecu: 'ECU1' } as ViewableDltMsg
+    const m2 = { ecu: 'ECU2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.false
+  })
+
+  it('should support ecu null', () => {
+    // null or undefined shall be ignored
+    const f = new DltFilter({ type: 0, ecu: null, apid: 'APID1' })
+
+    const m1 = { ecu: 'ECU1', apid: 'APID1' } as ViewableDltMsg
+    const m2 = { apid: 'APID1' } as ViewableDltMsg
+    const m3 = { apid: 'APID2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.true
+    expect(f.matches(m3)).to.be.false
+  })
+
+  it('should support ecu undefined', () => {
+    // null or undefined shall be ignored
+    const f = new DltFilter({ type: 0, ecu: undefined, apid: 'APID1' })
+
+    const m1 = { ecu: 'ECU1', apid: 'APID1' } as ViewableDltMsg
+    const m2 = { apid: 'APID1' } as ViewableDltMsg
+    const m3 = { apid: 'APID2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.true
+    expect(f.matches(m3)).to.be.false
+  })
+
+  it('should support regex ecu by autodetection', () => {
+    const f = new DltFilter({ type: 0, ecu: 'ECU1|ECU2' })
+
+    const m1 = { ecu: 'ECU1' } as ViewableDltMsg
+    const m2 = { ecu: 'ECU2' } as ViewableDltMsg
+    const m3 = { ecu: 'ECU3' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.true
+    expect(f.matches(m3)).to.be.false
+  })
+
+  it('should support ecu with regex chars', () => {
+    const f = new DltFilter({ type: 0, ecu: 'A|B', ecuIsRegex: false })
+
+    const m1 = { ecu: 'A|B' } as ViewableDltMsg
+    const m2 = { ecu: 'A' } as ViewableDltMsg
+    const m3 = { ecu: 'B' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.false
+    expect(f.matches(m3)).to.be.false
+  })
+
+  it('should support regex ecu', () => {
+    const f = new DltFilter({ type: 0, ecu: 'E', ecuIsRegex: true })
+
+    const m1 = { ecu: 'ECU1' } as ViewableDltMsg
+    const m2 = { ecu: ' DE' } as ViewableDltMsg
+    const m3 = { ecu: 'E' } as ViewableDltMsg
+    const m4 = { ecu: 'FOOA' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.true
+    expect(f.matches(m3)).to.be.true
+    expect(f.matches(m4)).to.be.false
+  })
+
+  it('should support apid filter', () => {
+    const f = new DltFilter({ type: 0, apid: 'apid' })
+
+    const m1 = { apid: 'apid' } as ViewableDltMsg
+    const m2 = { apid: 'api2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.false
+  })
+
+  it('should support ctid filter', () => {
+    const f = new DltFilter({ type: 0, ctid: 'ctid' })
+
+    const m1 = { ctid: 'ctid' } as ViewableDltMsg
+    const m2 = { ctid: 'cti2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.false
+  })
+
+  it('should support apid and ctid null', () => {
+    // null or undefined shall be ignored
+    const f = new DltFilter({ type: 0, apid: null, ctid: null, payload: 'foo' })
+
+    const m1 = { ctid: 'ECU1', apid: 'APID1', payloadString: 'foo' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+  })
+
+  it('should support payload filter', () => {
+    const f = new DltFilter({ type: 0, payload: 'payload' })
+
+    const m1 = { payloadString: 'any payload is' } as ViewableDltMsg
+    const m2 = { payloadString: 'payloa2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.false
+  })
+
+  it('should support payloadRegex filter', () => {
+    const f = new DltFilter({ type: 0, payloadRegex: 'pay.*d' })
+
+    const m1 = { payloadString: 'any payload is' } as ViewableDltMsg
+    const m2 = { payloadString: 'payloa2' } as ViewableDltMsg
+    expect(f.matches(m1)).to.be.true
+    expect(f.matches(m2)).to.be.false
+  })
+})
+
+describe('containsRegexChars', () => {
+  it('should ignore non string parameters', () => {
+    expect(containsRegexChars(undefined as unknown as string)).to.be.false
+    expect(containsRegexChars(null as unknown as string)).to.be.false
+    expect(containsRegexChars(123 as unknown as string)).to.be.false
+    expect(containsRegexChars({} as unknown as string)).to.be.false
+    expect(containsRegexChars([] as unknown as string)).to.be.false
+  })
+
+  it('should detect whether regex chars are included', () => {
+    expect(containsRegexChars('')).to.be.false
+    expect(containsRegexChars('abc')).to.be.false
+    expect(containsRegexChars('a^bc')).to.be.true
+    expect(containsRegexChars('a$bc')).to.be.true
+    expect(containsRegexChars('a*bc')).to.be.true
+    expect(containsRegexChars('a+bc')).to.be.true
+    expect(containsRegexChars('a?bc')).to.be.true
+    expect(containsRegexChars('a(bc')).to.be.true
+    expect(containsRegexChars('a)bc')).to.be.true
+    expect(containsRegexChars('a[bc')).to.be.true
+    expect(containsRegexChars('a]bc')).to.be.true
+    expect(containsRegexChars('a{bc')).to.be.true
+    expect(containsRegexChars('a}bc')).to.be.true
+    expect(containsRegexChars('a|bc')).to.be.true
+    expect(containsRegexChars('a.bc')).to.be.true
+    expect(containsRegexChars('a-bc')).to.be.true
+    expect(containsRegexChars('a\\bc')).to.be.true
+    expect(containsRegexChars('a=bc')).to.be.true
+    expect(containsRegexChars('a!bc')).to.be.true
+    expect(containsRegexChars('a<bc')).to.be.true
   })
 })
