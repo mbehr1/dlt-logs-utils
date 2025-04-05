@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+## [0.12.1](https://github.com/mbehr1/dlt-logs-utils/compare/v0.12.0...v0.12.1) (2025-04-05)
+
+
+### Bug Fixes
+
+* **attributes:** minimize the Attribute interface ([4548c95](https://github.com/mbehr1/dlt-logs-utils/commit/4548c952c80748f9912e45cb13ae8e21fbc21d42))
+
 # [0.12.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.11.0...v0.12.0) (2025-04-05)
 
 
