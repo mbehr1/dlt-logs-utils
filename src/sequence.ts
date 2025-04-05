@@ -11,6 +11,19 @@
 
 import { Html, RootContent, TableCell, TableRow } from 'mdast'
 
+/**
+ * check whether the given string contains any regex chars ^$*+?()[]{}|.-\=!<,
+ * @param s string to search for regex chars
+ * @returns whether the string contains any regex chars
+ */
+export function containsRegexChars(s: string): boolean {
+  if (typeof s !== 'string') {
+    return false
+  }
+  let pos = s.search(/[\^\$\*\+\?\(\)\[\]\{\}\|\.\-\\\=\!\<]/)
+  return pos >= 0
+}
+
 export interface RestObject {
   id: string | number
   type: string
@@ -81,9 +94,9 @@ export class DltFilter {
 
   // what to match for:
   mstp: number | undefined
-  ecu: string | undefined
-  apid: string | undefined
-  ctid: string | undefined
+  ecu: string | RegExp | undefined
+  apid: string | RegExp | undefined
+  ctid: string | RegExp | undefined
   logLevelMin: number | undefined
   logLevelMax: number | undefined
   verbose: boolean | undefined
@@ -140,9 +153,34 @@ export class DltFilter {
     obj.atLoadTime = this.atLoadTime ? true : undefined // default to false
     obj.not = this.negateMatch ? true : undefined // default to false
     obj.mstp = this.mstp
-    obj.ecu = this.ecu
-    obj.apid = this.apid
+    if (this.ecu instanceof RegExp) {
+      obj.ecu = this.ecu.source
+      obj.ecuIsRegex = true
+    } else {
+      obj.ecu = this.ecu
+      if (this.ecu !== undefined) {
+        obj.ecuIsRegex = false
+      }
+    }
+    if (this.apid instanceof RegExp) {
+      obj.apid = this.apid.source
+      obj.apidIsRegex = true
+    } else {
+      obj.apid = this.apid
+      if (this.apid !== undefined) {
+        obj.apidIsRegex = false
+      }
+    }
     obj.ctid = this.ctid
+    if (this.ctid instanceof RegExp) {
+      obj.ctid = this.ctid.source
+      obj.ctidIsRegex = true
+    } else {
+      obj.ctid = this.ctid
+      if (this.ctid !== undefined) {
+        obj.ctidIsRegex = false
+      }
+    }
     obj.logLevelMin = this.logLevelMin
     obj.logLevelMax = this.logLevelMax
     obj.verbose = this.verbose
@@ -186,11 +224,38 @@ export class DltFilter {
 
     this.mstp = 'mstp' in options ? options.mstp : undefined
 
-    this.ecu = 'ecu' in options ? options.ecu : undefined
+    if ('ecu' in options && typeof options.ecu === 'string') {
+      // todo support array of ecus?
+      const isRegex = 'ecuIsRegex' in options ? !!options.ecuIsRegex : containsRegexChars(options.ecu)
+      if (isRegex) {
+        this.ecu = new RegExp(options.ecu)
+      } else {
+        this.ecu = options.ecu
+      }
+    } else {
+      this.ecu = undefined
+    }
 
-    this.apid = 'apid' in options ? options.apid : undefined
-
-    this.ctid = 'ctid' in options ? options.ctid : undefined
+    if ('apid' in options && typeof options.apid === 'string') {
+      const isRegex = 'apidIsRegex' in options ? !!options.apidIsRegex : containsRegexChars(options.apid)
+      if (isRegex) {
+        this.apid = new RegExp(options.apid)
+      } else {
+        this.apid = options.apid
+      }
+    } else {
+      this.apid = undefined
+    }
+    if ('ctid' in options && typeof options.ctid === 'string') {
+      const isRegex = 'ctidIsRegex' in options ? !!options.ctidIsRegex : containsRegexChars(options.ctid)
+      if (isRegex) {
+        this.ctid = new RegExp(options.ctid)
+      } else {
+        this.ctid = options.ctid
+      }
+    } else {
+      this.ctid = undefined
+    }
 
     if ('logLevelMin' in options) {
       this.mstp = 0
@@ -278,14 +343,32 @@ export class DltFilter {
     if (this.logLevelMin && msg.mtin < this.logLevelMin) {
       return negated
     } // mstp already checked
-    if (this.ecu && msg.ecu !== this.ecu) {
-      return negated
+    if (this.ecu !== undefined) {
+      if (this.ecu instanceof RegExp) {
+        if (!this.ecu.test(msg.ecu)) {
+          return negated
+        }
+      } else if (msg.ecu !== this.ecu) {
+        return negated
+      }
     }
-    if (this.apid && msg.apid !== this.apid) {
-      return negated
+    if (this.apid !== undefined) {
+      if (this.apid instanceof RegExp) {
+        if (!this.apid.test(msg.apid)) {
+          return negated
+        }
+      } else if (msg.apid !== this.apid) {
+        return negated
+      }
     }
-    if (this.ctid && msg.ctid !== this.ctid) {
-      return negated
+    if (this.ctid !== undefined) {
+      if (this.ctid instanceof RegExp) {
+        if (!this.ctid.test(msg.ctid)) {
+          return negated
+        }
+      } else if (msg.ctid !== this.ctid) {
+        return negated
+      }
     }
     if (this.verbose !== undefined && msg.verbose !== this.verbose) {
       return negated
