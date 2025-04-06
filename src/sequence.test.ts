@@ -25,7 +25,7 @@ describe('FbEvent', () => {
     expect(ev).to.have.property('evType')
 
     // and FbSeqOccurrence does not include evType
-    const so: FbSeqOccurrence = new FbSeqOccurrence(0, ev, 'ok', [], [], [])
+    const so: FbSeqOccurrence = new FbSeqOccurrence(0, ev, 'ok', [], [], [], [])
     expect(so).to.not.have.property('evType')
     expect(so).to.be.instanceOf(FbSeqOccurrence)
   })
@@ -511,6 +511,70 @@ describe('SeqChecker', () => {
     testSeq([s1, { par: [s2] }, { ...s3, canCreateNew: false }], [m2, m3, m3], ['error']) // that one is ok
     testSeq([s1, { par: [s2] }, { ...s3, canCreateNew: false }, s4], [m2, m3, m3], ['error']) // that one did fails on v0.10.0
   })
+
+  // #region kpis
+  it('should support duration kpis with end only', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1],
+      kpis: [
+        {
+          name: 'kpi1',
+          duration: {
+            end: 'end(s#1)',
+          },
+        },
+      ],
+    }
+    const msgs = [{ ...m1, timeStamp: 9999 }]
+
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    seqChecker.processMsgs(msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    const kpis = seqResult.occurrences[0].kpis
+    console.log(`kpis: ${JSON.stringify(kpis, null, 2)}`)
+    expect(kpis).to.have.lengthOf(1)
+    expect(kpis[0].name).to.equal('kpi1')
+    expect(kpis[0].values).to.have.lengthOf(1)
+    expect(kpis[0].values[0]).to.equal('999.9ms')
+  })
+  it('should support duration kpis with start and end', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, s2],
+      kpis: [
+        {
+          name: 'kpi1',
+          duration: {
+            start: 'start(s#1)',
+            end: 'end(s#2)',
+          },
+        },
+      ],
+    }
+    const msgs = [
+      { ...m1, timeStamp: 10000, receptionTimeInMs: 1_000_000 },
+      { ...m2, timeStamp: 19999, receptionTimeInMs: 2_345_000 },
+    ]
+
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    seqChecker.processMsgs(msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+
+    const kpis = seqResult.occurrences[0].kpis
+    console.log(`kpis: ${JSON.stringify(kpis, null, 2)}`)
+    expect(kpis).to.have.lengthOf(1)
+    expect(kpis[0].name).to.equal('kpi1')
+    expect(kpis[0].values).to.have.lengthOf(1)
+    expect(kpis[0].values[0]).to.equal('1345000ms')
+  })
 })
 
 describe('getCaptures', () => {
@@ -543,6 +607,7 @@ describe('escapeForMD', () => {
   })
 })
 
+// #region DltFilter
 describe('DltFilter', () => {
   it('should support ecu filter', () => {
     const f = new DltFilter({ type: 0, ecu: 'ECU1' })
@@ -657,6 +722,7 @@ describe('DltFilter', () => {
   })
 })
 
+// #region containsRegexChars
 describe('containsRegexChars', () => {
   it('should ignore non string parameters', () => {
     expect(containsRegexChars(undefined as unknown as string)).to.be.false
