@@ -671,7 +671,7 @@ export interface FbSequenceResult {
 }
 
 export const summaryForStepRes = (stepResult: FbStepRes): string => {
-  switch (stepResult.stepType) {
+  switch (stepResult?.stepType) {
     case 'filter':
       return stepResult.res.summary
     case 'sequence':
@@ -696,10 +696,13 @@ export const summaryForStepRes = (stepResult: FbStepRes): string => {
       const parStepRes = stepResult.res.map((stepRes) => (stepRes !== undefined ? stepRes.map(summaryForStepRes) : 'undefined')).flat()
       return minResult(parStepRes)
   }
+  return `<err: summaryForStepRes: unknown step type: ${
+    stepResult === undefined ? 'stepResult=undefined' : JSON.stringify((stepResult as any).stepType)
+  }>`
 }
 
 export const msgForStepRes = (stepResult: FbStepRes): string => {
-  switch (stepResult.stepType) {
+  switch (stepResult?.stepType) {
     case 'filter':
       return stepResult.res.msgText ? stepResult.res.msgText : stepResult.res.title
     case 'sequence':
@@ -710,10 +713,13 @@ export const msgForStepRes = (stepResult: FbStepRes): string => {
       const startEvent = startEventForStepRes(stepResult)
       return startEvent ? (startEvent.msgText ? startEvent.msgText : startEvent.title) : ''
   }
+  return `<err: msgForStepRes: unknown step type: ${
+    stepResult === undefined ? 'stepResult=undefined' : JSON.stringify((stepResult as any).stepType)
+  }>`
 }
 
 export const startEventForStepRes = (stepResult: FbStepRes): FbEvent | undefined => {
-  switch (stepResult.stepType) {
+  switch (stepResult?.stepType) {
     case 'filter':
       return stepResult.res
     case 'sequence':
@@ -727,14 +733,16 @@ export const startEventForStepRes = (stepResult: FbStepRes): FbEvent | undefined
         .flat()
         .map((res) => startEventForStepRes(res))
         .filter((ev) => ev !== undefined)
-      // TODO sort by time or index?
+      // TODO sort by time or index? (for now by timeInMs with unknowns at the end)
+      startEvents.sort((a, b) => (a?.timeInMs || Number.MAX_VALUE) - (b?.timeInMs || Number.MAX_VALUE))
       return startEvents.length > 0 ? startEvents[0] : undefined
     }
   }
+  return undefined
 }
 
 export const lastEventForFbStepRes = (stepRes: FbStepRes): FbEvent | undefined => {
-  switch (stepRes.stepType) {
+  switch (stepRes?.stepType) {
     case 'filter':
       return stepRes.res
       break
@@ -749,20 +757,24 @@ export const lastEventForFbStepRes = (stepRes: FbStepRes): FbEvent | undefined =
         let lastEvent = undefined
         let lastTimeInMs = 0
         for (const resArray of stepRes.res) {
-          for (const res of resArray) {
-            const event = lastEventForFbStepRes(res)
-            if (event) {
-              const timeInMs = event.timeInMs || 0
-              if (timeInMs > lastTimeInMs) {
-                lastTimeInMs = timeInMs
-                lastEvent = event
+          if (Array.isArray(resArray)) {
+            for (const res of resArray) {
+              const event = lastEventForFbStepRes(res)
+              if (event) {
+                const timeInMs = event.timeInMs || 0
+                if (timeInMs > lastTimeInMs) {
+                  lastTimeInMs = timeInMs
+                  lastEvent = event
+                }
               }
             }
           }
         }
+        return lastEvent
       }
       break
   }
+  return undefined
 }
 
 export const lastEventForOccurrence = (occ: FbSeqOccurrence): FbEvent => {
@@ -990,7 +1002,9 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
           : '', // todo the persistent id is not the one from adlt convert if adlt is started locally and port is used.
         occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '_notime_',
         typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
-        hasKPIsDefined ? { type: 'html', value: occ.kpis.map((kpi) => `${escapeForMD(kpi.name)}: ${kpi.values.join('<br>')}`) } : undefined,
+        hasKPIsDefined
+          ? { type: 'html', value: occ.kpis.map((kpi) => `${escapeForMD(kpi.name)}: ${kpi.values.join('<br>')}`).join('<br>') }
+          : undefined,
         occ.context.length > 0
           ? { type: 'html', value: occ.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>') }
           : '',
@@ -1150,20 +1164,13 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
       )
     })
 
+    const result = this.result() // must be called before evaluateKpis
     const kpis = this.evaluateKpis()
 
-    return new FbSeqOccurrence(
-      this.instance,
-      this.startEvent,
-      this.result(),
-      this.failures,
-      stepResults,
-      Array.from(this.context.entries()),
-      kpis,
-    )
+    return new FbSeqOccurrence(this.instance, this.startEvent, result, this.failures, stepResults, Array.from(this.context.entries()), kpis)
   }
 
-  evaluateKpis(): KpiInstance[] {
+  private evaluateKpis(): KpiInstance[] {
     const kpis = []
 
     const getKpiEvents = (kpi: string): FbEvent[] | undefined => {
@@ -1205,11 +1212,29 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
 
         if (kpiStart) {
           // we want the distance of both timeInMs
-          // TODO or if lifecycle is the same the dist on timeStamp?
+          // or if lifecycle is the same the dist on timeStamp
           if (Array.isArray(kpiStartEvents) && Array.isArray(kpiEndEvents)) {
-            const startTime = kpiStartEvents.map((ev) => ev.timeInMs || 0)
-            const endTime = kpiEndEvents.map((ev) => ev.timeInMs || 0)
-            const durations = startTime.map((start, idx) => (endTime[idx] ? endTime[idx] - start + 'ms' : '(no end)'))
+            type KpiTime = { timeInMs: number; lc?: DltLifecycleInfoMinIF; timeStamp: number }
+            const startTimes = kpiStartEvents.map((ev) => {
+              return { timeInMs: ev.timeInMs || 0, lc: ev.lifecycle, timeStamp: ev.timeStamp }
+            })
+            const endTimes = kpiEndEvents.map((ev) => {
+              return { timeInMs: ev.timeInMs || 0, lc: ev.lifecycle, timeStamp: ev.timeStamp }
+            })
+            const diffTime = (start: KpiTime, end: KpiTime) => {
+              if (start.lc !== undefined && start.lc === end.lc) {
+                return (end.timeStamp - start.timeStamp) / 10 + 'ms' // in ms
+              }
+              if (!end.timeInMs) {
+                return '(no end time)'
+              }
+              if (!start.timeInMs) {
+                return '(no start time)'
+              }
+              return end.timeInMs - start.timeInMs + 'ms' // in ms
+            }
+
+            const durations = startTimes.map((start, idx) => (idx < endTimes.length ? diffTime(start, endTimes[idx]) : '(no end)'))
             if (kpiEndEvents.length > kpiStartEvents.length) {
               for (let i = kpiStartEvents.length; i < kpiEndEvents.length; i++) {
                 durations.push('(no start)')
