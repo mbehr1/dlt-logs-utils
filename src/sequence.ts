@@ -9,7 +9,7 @@
 // [x] - add support for context values for reporting
 // [x] - add support for context values to match a later step (e.g. for identifiers to match the right status/end...) (starting with _)
 
-import { Html, RootContent, TableCell, TableRow } from 'mdast'
+import { AlignType, Html, RootContent, TableCell, TableRow } from 'mdast'
 
 /**
  * check whether the given string contains any regex chars ^$*+?()[]{}|.-\=!<,
@@ -505,6 +505,21 @@ export interface FBSequence {
    * Global filters can not be used in sub-sequences!
    */
   globalFilters?: Filter[]
+  /**
+   * array of kpis defined/gathered for this sequence (per occurrence)
+   */
+  kpis?: FBKPI[]
+}
+
+/**
+ * type for a KPI definition in the json for a sequence as part of sequence kpis array
+ */
+export interface FBKPI {
+  name: string
+  duration?: {
+    start?: string // supported are: start(s#<stepnr>), end(s#<stepnr>). if omitted start of the lifecycle of the end is used (or the monotonic timestamp of end)
+    end: string // supported are: start(s#<stepnr>), end(s#<stepnr>)
+  }
 }
 
 // #region FBSeqStep
@@ -615,6 +630,10 @@ export type FbStepRes = FbFilterStepRes | FbAltStepRes | FbSeqStepRes | FbParSte
  */
 
 export type StepResult = FbStepRes[]
+export type KpiInstance = {
+  name: string
+  values: string[]
+}
 
 export class FbSeqOccurrence {
   constructor(
@@ -628,6 +647,10 @@ export class FbSeqOccurrence {
      * Sorted by capture order thus an array and not an object
      */
     public context: [string, string][],
+    /**
+     * kpis evaluated for this occurrence
+     */
+    public kpis: KpiInstance[],
   ) {}
 
   //instance: number
@@ -708,6 +731,56 @@ export const startEventForStepRes = (stepResult: FbStepRes): FbEvent | undefined
       return startEvents.length > 0 ? startEvents[0] : undefined
     }
   }
+}
+
+export const lastEventForFbStepRes = (stepRes: FbStepRes): FbEvent | undefined => {
+  switch (stepRes.stepType) {
+    case 'filter':
+      return stepRes.res
+      break
+    case 'alt':
+      return lastEventForFbStepRes(stepRes.res)
+      break
+    case 'sequence':
+      return lastEventForOccurrence(stepRes.res)
+      break
+    case 'par':
+      {
+        let lastEvent = undefined
+        let lastTimeInMs = 0
+        for (const resArray of stepRes.res) {
+          for (const res of resArray) {
+            const event = lastEventForFbStepRes(res)
+            if (event) {
+              const timeInMs = event.timeInMs || 0
+              if (timeInMs > lastTimeInMs) {
+                lastTimeInMs = timeInMs
+                lastEvent = event
+              }
+            }
+          }
+        }
+      }
+      break
+  }
+}
+
+export const lastEventForOccurrence = (occ: FbSeqOccurrence): FbEvent => {
+  let lastEvent = occ.startEvent
+  let lastTimeInMs = lastEvent.timeInMs || 0
+  for (const stepsRes of occ.stepsResult) {
+    for (const stepRes of stepsRes) {
+      const event = lastEventForFbStepRes(stepRes)
+      if (event) {
+        const timeInMs = event.timeInMs || 0
+        if (timeInMs > lastTimeInMs) {
+          lastTimeInMs = timeInMs
+          lastEvent = event
+        }
+      }
+    }
+  }
+  return lastEvent
 }
 
 export const resAsEmoji = (res: string | undefined): string => {
@@ -828,6 +901,8 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
     ],
   })
 
+  const hasKPIsDefined = seqResult.sequence.kpis && seqResult.sequence.kpis.length > 0
+
   const seqOccurrenceAsTableRow = (occ: FbSeqOccurrence): TableRow => {
     const stepsSummary = `${occ.stepsResult
       .map((res: StepResult) => {
@@ -875,6 +950,10 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
                     if (r.res.context.length > 0) {
                       msg += `<br>${r.res.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>')}`
                     }
+                    if (r.res.kpis?.length > 0) {
+                      msg += `<br>KPIs:`
+                      msg += `<br>${r.res.kpis.map((kpi) => `${escapeForMD(kpi.name)}: ${kpi.values.join(', ')}`).join('<br>')}`
+                    }
                     msg += `</td>`
                     return msg
                   } else if (r.stepType === 'par') {
@@ -900,47 +979,55 @@ export const seqResultToMdAst = (seqResult: FbSequenceResult): RootContent[] => 
         ).value,
       )
     }
-    return asTableRow([
-      resAsEmoji(occ.result),
-      occ.instance.toString(),
-      occ.startEvent.lifecycle !== undefined
-        ? typeof occ.startEvent.lifecycle === 'number'
-          ? (occ.startEvent.lifecycle as undefined as number).toString()
-          : occ.startEvent.lifecycle.persistentId.toString()
-        : '', // todo the persistent id is not the one from adlt convert if adlt is started locally and port is used.
-      occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '_notime_',
-      typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
-      occ.context.length > 0
-        ? { type: 'html', value: occ.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>') }
-        : '',
-      stepsAsHtml('', occ.stepsResult, seqResult.sequence.steps),
-      occ.failures.length > 0 ? { type: 'html', value: occ.failures.map(escapeForMD).join('<br>') } : '',
-    ])
+    return asTableRow(
+      [
+        resAsEmoji(occ.result),
+        occ.instance.toString(),
+        occ.startEvent.lifecycle !== undefined
+          ? typeof occ.startEvent.lifecycle === 'number'
+            ? (occ.startEvent.lifecycle as undefined as number).toString()
+            : occ.startEvent.lifecycle.persistentId.toString()
+          : '', // todo the persistent id is not the one from adlt convert if adlt is started locally and port is used.
+        occ.startEvent && occ.startEvent.timeInMs ? new Date(occ.startEvent.timeInMs).toLocaleString('de-DE') : '_notime_',
+        typeof occ.result === 'string' ? occ.result : JSON.stringify(occ.result),
+        hasKPIsDefined ? { type: 'html', value: occ.kpis.map((kpi) => `${escapeForMD(kpi.name)}: ${kpi.values.join('<br>')}`) } : undefined,
+        occ.context.length > 0
+          ? { type: 'html', value: occ.context.map(([name, value]) => `${escapeForMD(name)}: ${escapeForMD(value)}`).join('<br>') }
+          : '',
+        stepsAsHtml('', occ.stepsResult, seqResult.sequence.steps),
+        occ.failures.length > 0 ? { type: 'html', value: occ.failures.map(escapeForMD).join('<br>') } : '',
+      ].filter((e) => e !== undefined) as (string | Html)[],
+    )
   }
 
   const seqOccurrencesAsTableRows: TableRow[] = seqResult.occurrences ? seqResult.occurrences.map(seqOccurrenceAsTableRow) : []
   resultAsMd.push({
     type: 'table',
-    align: ['left', 'right', 'right', 'left', 'left', 'left', 'left', 'left'],
+    align: ['left', 'right', 'right', 'left', 'left', hasKPIsDefined ? 'left' : undefined, 'left', 'left', 'left'].filter(
+      (e) => e !== undefined,
+    ) as AlignType[],
     children: [
-      asTableRow([
-        '',
-        '#',
-        'LC',
-        `Time (${
-          Intl.DateTimeFormat('de-DE', { timeZoneName: 'longOffset' })
-            .formatToParts(
-              seqResult.occurrences && seqResult.occurrences.length > 0 && seqResult.occurrences[0].startEvent.timeInMs !== undefined
-                ? new Date(seqResult.occurrences[0].startEvent.timeInMs)
-                : Date.now(),
-            )
-            .find((part) => part.type === 'timeZoneName')?.value || 'UTC'
-        })`,
-        'Result',
-        'Context',
-        'Steps',
-        'Failures',
-      ]),
+      asTableRow(
+        [
+          '',
+          '#',
+          'LC',
+          `Time (${
+            Intl.DateTimeFormat('de-DE', { timeZoneName: 'longOffset' })
+              .formatToParts(
+                seqResult.occurrences && seqResult.occurrences.length > 0 && seqResult.occurrences[0].startEvent.timeInMs !== undefined
+                  ? new Date(seqResult.occurrences[0].startEvent.timeInMs)
+                  : Date.now(),
+              )
+              .find((part) => part.type === 'timeZoneName')?.value || 'UTC'
+          })`,
+          'Result',
+          hasKPIsDefined ? 'KPIs' : undefined,
+          'Context',
+          'Steps',
+          'Failures',
+        ].filter((e) => e !== undefined),
+      ),
       ...seqOccurrencesAsTableRows,
     ],
   })
@@ -999,6 +1086,7 @@ const filterFromSeq = (seq: FBSequence): Filter[] => {
 
 type SeqStepResult<DltFilterType extends IDltFilter> = StepResult | SeqOccurrence<DltFilterType>[]
 
+// #region SeqOccurrence
 class SeqOccurrence<DltFilterType extends IDltFilter> {
   // sequence: FBSequence
   // instance: number // 1.. based
@@ -1009,7 +1097,13 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
   context: Map<string, string> // context values for reporting, context values starting with _ can be set just once and then later on need to match
   maxStepNr: number // the max stepNr of the executed steps
 
-  constructor(public step: FBSeqStep, public instance: number, public startEvent: FbEvent, private steps: SeqStep<DltFilterType>[]) {
+  constructor(
+    public jsonSeq: FBSequence, // the surrounding sequence
+    public step: FBSeqStep,
+    public instance: number,
+    public startEvent: FbEvent,
+    private steps: SeqStep<DltFilterType>[],
+  ) {
     this.stepType = 'tmpSequence'
     this.stepsResult = new Map()
     this.failures = []
@@ -1056,6 +1150,8 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
       )
     })
 
+    const kpis = this.evaluateKpis()
+
     return new FbSeqOccurrence(
       this.instance,
       this.startEvent,
@@ -1063,7 +1159,75 @@ class SeqOccurrence<DltFilterType extends IDltFilter> {
       this.failures,
       stepResults,
       Array.from(this.context.entries()),
+      kpis,
     )
+  }
+
+  evaluateKpis(): KpiInstance[] {
+    const kpis = []
+
+    const getKpiEvents = (kpi: string): FbEvent[] | undefined => {
+      if (!kpi) {
+        return undefined
+      }
+
+      const regexStartEnd = /^(start|end)\(s#(\d+)\)$/
+
+      // supported syntax: start(s#<stepnr>) or end(s#<stepnr>)
+      // todo support sub-steps?
+      const matches = kpi.match(regexStartEnd)
+      if (matches) {
+        const stepNr = parseInt(matches[2], 10)
+        const step = this.steps.find((s) => s.stepNr === stepNr)
+        if (step) {
+          const stepRes = this.stepsResult.get(step)
+          if (stepRes) {
+            if (matches[1] === 'start') {
+              return stepRes.map((res) => startEventForStepRes(res)).filter((ev) => ev !== undefined)
+            } else if (matches[1] === 'end') {
+              return stepRes.map((res) => lastEventForFbStepRes(res)).filter((ev) => ev !== undefined)
+            }
+          }
+        }
+      }
+
+      return undefined
+    }
+
+    for (const kpiDef of this.jsonSeq.kpis || []) {
+      const kpiName = kpiDef.name
+      if ('duration' in kpiDef) {
+        const kpiStart = kpiDef.duration?.start
+        const kpiEnd = kpiDef.duration.end
+
+        const kpiStartEvents = kpiStart ? getKpiEvents(kpiStart) : undefined
+        const kpiEndEvents = getKpiEvents(kpiEnd)
+
+        if (kpiStart) {
+          // we want the distance of both timeInMs
+          // TODO or if lifecycle is the same the dist on timeStamp?
+          if (Array.isArray(kpiStartEvents) && Array.isArray(kpiEndEvents)) {
+            const startTime = kpiStartEvents.map((ev) => ev.timeInMs || 0)
+            const endTime = kpiEndEvents.map((ev) => ev.timeInMs || 0)
+            const durations = startTime.map((start, idx) => (endTime[idx] ? endTime[idx] - start + 'ms' : '(no end)'))
+            if (kpiEndEvents.length > kpiStartEvents.length) {
+              for (let i = kpiStartEvents.length; i < kpiEndEvents.length; i++) {
+                durations.push('(no start)')
+              }
+            }
+            kpis.push({ name: kpiName, values: durations })
+          }
+        } else if (Array.isArray(kpiEndEvents)) {
+          // we want the timestamp of end
+          kpis.push({
+            name: kpiName,
+            values: kpiEndEvents.map((ev) => (ev.timeStamp ? (ev.timeStamp / 10).toString() + 'ms' : 'undefined')), // todo change large values to s?
+          })
+        }
+      }
+    }
+
+    return kpis
   }
 
   /**
@@ -1149,6 +1313,7 @@ export const getCaptures = (regex: RegExp, payloadString: string) => {
  * Create a new SeqStepFiler, SeqStepSequence or SeqStepAlt based on the json step.
  *
  * Performs sanity checks on the json step
+ * @param jsonSeq the surrounding sequence
  * @param step the json step object
  * @param stepPrefix
  * @param stepNr
@@ -1156,6 +1321,7 @@ export const getCaptures = (regex: RegExp, payloadString: string) => {
  * @returns an instance of SeqStep
  */
 function newSeqStep<DltFilterType extends IDltFilter>(
+  jsonSeq: FBSequence,
   step: FBSeqStep,
   stepPrefix: string,
   stepNr: number,
@@ -1181,13 +1347,13 @@ function newSeqStep<DltFilterType extends IDltFilter>(
   }
 
   if (hasFilter) {
-    return new SeqStepFilter<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+    return new SeqStepFilter<DltFilterType>(jsonSeq, stepPrefix, stepNr, step, DltFilterConstructor)
   } else if (hasSequence) {
-    return new SeqStepSequence<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+    return new SeqStepSequence<DltFilterType>(jsonSeq, stepPrefix, stepNr, step, DltFilterConstructor)
   } else if (hasAlt) {
-    return new SeqStepAlt<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+    return new SeqStepAlt<DltFilterType>(jsonSeq, stepPrefix, stepNr, step, DltFilterConstructor)
   } else if (hasPar) {
-    return new SeqStepPar<DltFilterType>(stepPrefix, stepNr, step, DltFilterConstructor)
+    return new SeqStepPar<DltFilterType>(jsonSeq, stepPrefix, stepNr, step, DltFilterConstructor)
   }
   throw new Error(`SeqStep#${this.stepPrefix}${stepNr}: no filter, sequence or alt(ernatives) for step found! JSON=${JSON.stringify(step)}`)
 }
@@ -1289,6 +1455,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
   private occData: Map<FbParStepRes, SeqOccurrence<DltFilterType>[]> = new Map()
 
   constructor(
+    private jsonSeq: FBSequence,
     stepPrefix: string,
     stepNr: number,
     jsonStep: FBSeqStep,
@@ -1300,7 +1467,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
     }
     // every step can have its own card and canCreateNew attribs
     this.parSteps = jsonStep.par.map((parStep, idx) =>
-      newSeqStep(parStep, `${stepPrefix.length > 0 ? stepPrefix + '.p' : 'p'}${idx + 1}`, stepNr, DltFilterConstructor),
+      newSeqStep(jsonSeq, parStep, `${stepPrefix.length > 0 ? stepPrefix + '.p' : 'p'}${idx + 1}`, stepNr, DltFilterConstructor),
     )
   }
 
@@ -1439,6 +1606,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
 
       const stepNewOccurrence = (msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> => {
         const newOcc = new SeqOccurrence(
+          this.jsonSeq,
           step.jsonStep, // NOTE this is wrong step (no sequence) but we don't use it anyhow
           prevStepOcc ? prevStepOcc.instance + 1 : 1,
           {
@@ -1512,6 +1680,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
 class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType> {
   private altSteps: SeqStep<DltFilterType>[]
   constructor(
+    private jsonSeq: FBSequence,
     stepPrefix: string,
     stepNr: number,
     jsonStep: FBSeqStep,
@@ -1527,6 +1696,7 @@ class SeqStepAlt<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
     // we need to pass the canCreateNew (non overwriteable) and card (overwriteable) attribs to the alt steps
     this.altSteps = jsonStep.alt.map((altStep, idx) =>
       newSeqStep(
+        this.jsonSeq,
         { card: jsonStep.card, ...altStep, canCreateNew: this.canCreateNew },
         `${stepPrefix.length > 0 ? stepPrefix + '.a' : 'a'}${idx + 1}`,
         stepNr,
@@ -1618,6 +1788,7 @@ class SeqStepFilter<DltFilterType extends IDltFilter> extends SeqStep<DltFilterT
   public filter: IDltFilter
 
   constructor(
+    jsonSeq: FBSequence,
     stepPrefix: string,
     stepNr: number,
     jsonStep: FBSeqStep,
@@ -1738,6 +1909,7 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
   public sequence: Sequence<DltFilterType>
 
   constructor(
+    jsonSeq: FBSequence,
     stepPrefix: string,
     stepNr: number,
     jsonStep: FBSeqStep,
@@ -1814,6 +1986,7 @@ class SeqStepSequence<DltFilterType extends IDltFilter> extends SeqStep<DltFilte
 
     const seqNewOccurrence = (msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> => {
       const newOcc = new SeqOccurrence(
+        this.sequence.jsonSeq,
         this.jsonStep,
         curValues !== undefined ? curValues.length + 1 : 1,
         {
@@ -1905,7 +2078,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
       throw new Error(`SeqChecker: steps not an array for sequence '${this.jsonSeq.name}'! JSON=${JSON.stringify(this.jsonSeq)}`)
     }
     for (const [idx, step] of this.jsonSeq.steps.entries()) {
-      const newStep = newSeqStep(step, stepPrefix, idx + 1, DltFilterConstructor)
+      const newStep = newSeqStep(jsonSeq, step, stepPrefix, idx + 1, DltFilterConstructor)
       // check for ignoreOutOfOrder rules:
       if (newStep.ignoreOutOfOrder && idx > 0) {
         // check that the prev. step is mandatory
@@ -2053,6 +2226,7 @@ export class SeqChecker<DltFilterType extends IDltFilter> {
 
   newOccurrence(msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> {
     const newOcc = new SeqOccurrence(
+      this.jsonSeq,
       this.jsonSeq,
       this.seqOccurrences.length + 1,
       {
