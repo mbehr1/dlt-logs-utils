@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [0.13.0](https://github.com/mbehr1/dlt-logs-utils/compare/v0.12.1...v0.13.0) (2025-04-06)
+
+
+### Features
+
+* **sequence:** first support for KPIs ([16fa84a](https://github.com/mbehr1/dlt-logs-utils/commit/16fa84ad73bd9196a0d75798f774ec3970a2281e))
+
 ## [0.12.1](https://github.com/mbehr1/dlt-logs-utils/compare/v0.12.0...v0.12.1) (2025-04-05)
 
 
