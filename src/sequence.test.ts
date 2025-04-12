@@ -37,12 +37,14 @@ describe('SeqChecker', () => {
   const f2 = new DltFilter({ type: 3, apid: '2' })
   const f3 = new DltFilter({ type: 3, apid: '3' })
   const f4 = new DltFilter({ type: 3, apid: '4' })
+  const f5 = new DltFilter({ type: 3, apid: '5' })
 
   // a few steps:
   const s1 = { filter: f1 }
   const s2 = { filter: f2 }
   const s3 = { filter: f3 }
   const s4 = { filter: f4 }
+  const s5 = { filter: f5 }
 
   // optional steps:
   const o3_0_1 = { filter: f3, card: '?' }
@@ -54,6 +56,7 @@ describe('SeqChecker', () => {
   const m2 = { apid: '2' } as ViewableDltMsg
   const m3 = { apid: '3' } as ViewableDltMsg
   const m4 = { apid: '4' } as ViewableDltMsg
+  const m5 = { apid: '5' } as ViewableDltMsg
 
   const newFbSeqResult = (seq: FBSequence): FbSequenceResult => {
     return {
@@ -440,11 +443,62 @@ describe('SeqChecker', () => {
 
     // par step with sub-sequence:
     testSeq([{ par: [s1, { sequence: { name: 'sub-seq', steps: [s2] } }] }, s3], [m1, m2, m3], ['ok'])
+
+    // par step as 3rd step:
+    testSeq([{ ...s1, card: '+' }, { ...s2, card: '+' }, { par: [s3, s4] }], [m1, m1, m2, m2, m3, m4], ['ok'])
+    testSeq(
+      [
+        { ...s1, card: '+' },
+        { ...s2, card: '+' },
+        {
+          par: [
+            { ...s3, card: '+' },
+            { ...s4, card: '+' },
+          ],
+        },
+      ],
+      [m1, m1, m2, m2, m3, m3, m4], // multiple m4 don't work!
+      ['ok'],
+    )
+    // par with par
+    testSeq(
+      [
+        { ...s1, card: '+' },
+        { ...s2, card: '+' },
+        {
+          par: [{ par: [{ ...s3, card: '+' }, s5] }, { ...s4, card: '+' }],
+        },
+      ],
+      [m1, m2, m3, m4, m5],
+      ['ok'],
+    )
+    testSeq(
+      [
+        { ...s1, card: '+' },
+        { ...s2, card: '+' },
+        {
+          par: [{ par: [{ ...s3, card: '+' }, s5] }, { ...s4, card: '+' }],
+        },
+      ],
+      [m1, m1, m2, m2, m3, m3, m4, m5],
+      ['ok'],
+    )
+    testSeq(
+      [
+        { ...s1, card: '+' },
+        { ...s2, card: '+' },
+        {
+          par: [{ par: [{ ...s3, card: '+' }, s5] }, { ...s4, card: '+' }],
+        },
+      ],
+      [m1, m1, m2, m2, m3, m3, m4, m5, m1, m2, m3, m3, m4, m5],
+      ['ok', 'ok'],
+    )
   })
 
   // todo check for sub-sequences being out of order
 
-  // #region par(arallel) steps
+  // #region ignoreOutOfOrder
   it('should check for ignoreOutOfOrder not after optional steps', () => {
     expect(() => testSeq([o3_0_1, { ...s2, ignoreOutOfOrder: true }], [], [])).to.throw()
   })
