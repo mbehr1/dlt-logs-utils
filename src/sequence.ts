@@ -1627,6 +1627,8 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
       ) {
         prevStepOcc = stepsOccFinishedData[idx]
         stepRunningValues = lastFinishedValues
+      }else{
+        prevStepOcc = stepsOccRunningData ? stepsOccRunningData[idx] : undefined
       }
 
       const stepNewOccurrence = (msg: ViewableDltMsg, step: SeqStep<DltFilterType>): SeqOccurrence<DltFilterType> => {
