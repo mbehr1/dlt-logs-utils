@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+## [0.13.2](https://github.com/mbehr1/dlt-logs-utils/compare/v0.13.1...v0.13.2) (2025-04-12)
+
+
+### Bug Fixes
+
+* **sequence:** par seq with par seq was not using the current data ([b0e8061](https://github.com/mbehr1/dlt-logs-utils/commit/b0e8061eefacbc56e60480cf7b23993b5822c353))
+
 ## [0.13.1](https://github.com/mbehr1/dlt-logs-utils/compare/v0.13.0...v0.13.1) (2025-04-06)
 
 
