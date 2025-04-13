@@ -269,6 +269,96 @@ describe('SeqChecker', () => {
     testSeq([s1, o3_1_m, s2], [m1, m3, m3, m2], ['ok'])
   })
 
+  // #region failures
+  it('should detect failures defined from a started occurrence', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, s2],
+      failures: {
+        f3: f3,
+        f4: f4,
+      },
+    }
+    const msgs = [m1, m3]
+
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    expect(seqChecker.getAllFilters()).to.have.lengthOf(4)
+    seqChecker.processMsgs(msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('error')
+    expect(seqResult.occurrences[0].failures).to.have.length(1)
+    expect(seqResult.occurrences[0].failures[0]).to.equal('f3')
+  })
+
+  it('should detect failures capturing context', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, s2],
+      failures: {
+        f3: f3,
+        f4: { ...f4, payloadRegex: 'foo (?<reason>.*?) bar' },
+      },
+    }
+    const mp4 = { ...m4, payloadString: 'foo 123 bar' }
+
+    const msgs = [m1, mp4]
+
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    expect(seqChecker.getAllFilters()).to.have.lengthOf(4)
+    seqChecker.processMsgs(msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('error')
+    expect(seqResult.occurrences[0].failures).to.have.length(1)
+    expect(seqResult.occurrences[0].failures[0]).to.equal('f4: "reason":"123"')
+    expect(seqResult.occurrences[0].context).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].context[0]).to.eql(['reason', '123'])
+  })
+
+  it('should ignore failures if occurrence is finished already', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, s2],
+      failures: {
+        f3: f3,
+        f4: f4,
+      },
+    }
+    const msgs = [m1, m2, m4]
+
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    expect(seqChecker.getAllFilters()).to.have.lengthOf(4)
+    seqChecker.processMsgs(msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(1)
+    expect(seqResult.occurrences[0].result).to.equal('ok')
+    expect(seqResult.occurrences[0].failures).to.have.length(0)
+  })
+
+  it('should ignore failures if no occurrence is started', () => {
+    const jsonSeq: FBSequence = {
+      name: 'seq1',
+      steps: [s1, s2],
+      failures: {
+        f3: f3,
+        f4: f4,
+      },
+    }
+    const msgs = [m3, m4]
+
+    const seqResult = newFbSeqResult(jsonSeq)
+    const seqChecker = new SeqChecker(jsonSeq, seqResult, DltFilter)
+
+    expect(seqChecker.getAllFilters()).to.have.lengthOf(4)
+    seqChecker.processMsgs(msgs)
+    expect(seqResult.occurrences).to.have.lengthOf(0)
+  })
+
+  // #region sub-sequences
   it('should support sub-sequences', () => {
     testSeq([s1, { sequence: { name: 'sub seq 1', steps: [s3, s4] } }, s2], [m1, m3, m4, m2], ['ok'])
 
