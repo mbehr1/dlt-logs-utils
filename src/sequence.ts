@@ -1627,7 +1627,7 @@ class SeqStepPar<DltFilterType extends IDltFilter> extends SeqStep<DltFilterType
       ) {
         prevStepOcc = stepsOccFinishedData[idx]
         stepRunningValues = lastFinishedValues
-      }else{
+      } else {
         prevStepOcc = stepsOccRunningData ? stepsOccRunningData[idx] : undefined
       }
 
@@ -2144,12 +2144,27 @@ export class Sequence<DltFilterType extends IDltFilter> {
     let updated = false
     for (const [failureName, filter] of this.failureFilters) {
       if (filter.matches(msg)) {
+        const captures = filter.payloadRegex ? getCaptures(filter.payloadRegex, msg.payloadString) : undefined
+        let failure
+        if (captures !== undefined) {
+          // add/set to context
+          for (const [key, value] of Object.entries(captures)) {
+            startedSeqOccurrence.context.set(key, value)
+          }
+          failure = `${failureName}: ${Object.entries(captures)
+            .map(([key, value]) => `"${key}":"${value}"`)
+            .join(', ')}`
+        } else {
+          failure = failureName
+        }
+
         // do we have a started sequence? then mark that as failed
         // the first failure marks it as failed (or when isFinished)
         if (startedSeqOccurrence !== undefined) {
-          startedSeqOccurrence.failures.push(failureName)
+          // any captures?
+          startedSeqOccurrence.failures.push(failure)
           seqResult.logs.push(
-            `sequence '${this.name}' instance #${startedSeqOccurrence.instance} marked as failure '${failureName}' by matched msg #${msg.index}`,
+            `sequence '${this.name}' instance #${startedSeqOccurrence.instance} marked as failure '${failure}' by matched msg #${msg.index}`,
           )
           if (startedSeqOccurrence.isFinished()) {
             startedSeqOccurrence = undefined
@@ -2159,7 +2174,7 @@ export class Sequence<DltFilterType extends IDltFilter> {
         } else {
           // else start a new sequence and mark that as failed ? <- no, we should not start a new sequence
           // startedSeqOccurrence = {} as SeqOccurrence
-          seqResult.logs.push(`ignored failure '${failureName}' of matched msg #${msg.index} as no started sequence occurrence`)
+          seqResult.logs.push(`ignored failure '${failure}' of matched msg #${msg.index} as no started sequence occurrence`)
         }
       }
     }
