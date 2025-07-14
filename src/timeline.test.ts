@@ -95,6 +95,11 @@ describe('TL', () => {
       expect(tl.calculateY()).to.equal('value1|tooltip1|color1|$')
     })
 
+    it('should return the value string with tooltip, color and persistLcs', () => {
+      const tl = new TL('group1', 'lane1', 'value1', { tooltip: 'tooltip1', color: 'color1', persistLcs: true })
+      expect(tl.calculateY()).to.equal('value1|tooltip1|color1|$') // persistLcs needs to be | prepended anyhow!
+    })
+
     it('should return the value string with tooltip and color', () => {
       const tl = new TL('group1', 'lane1', 'value1', { tooltip: 'tooltip1', color: 'color1' })
       expect(tl.calculateY()).to.equal('value1|tooltip1|color1')

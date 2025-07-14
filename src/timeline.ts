@@ -65,7 +65,7 @@ export class TL {
     if (this.tooltip || this.color || this.tlEnds || this.persistLcs) {
       return `${valueStr}|${this.tooltip ? this.tooltip.replaceAll('|', ' ') : ''}${this.color ? '|' + this.color : ''}${
         this.tlEnds ? '|' : ''
-      }${this.persistLcs ? '$' : ''}`
+      }${this.persistLcs ? (this.tlEnds || !this.color ? '$' : '|$') : ''}`
     } else {
       return this.value !== undefined ? (typeof this.value === 'number' ? this.value : valueStr) : undefined
     }
