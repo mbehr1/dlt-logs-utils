@@ -12,6 +12,7 @@ on:
       - beta
 
 permissions:
+  id-token: write # to enable use of OIDC for npm provenance
   contents: read # for checkout
 
 jobs:
@@ -53,5 +54,4 @@ jobs:
         if: ${{ github.ref == 'refs/heads/main' && !github.event.pull_request && github.event_name == 'push' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release
