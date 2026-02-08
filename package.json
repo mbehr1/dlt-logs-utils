@@ -3,6 +3,10 @@
   "version": "0.13.5",
   "license": "MIT",
   "description": "Utils for DLT-Logs VS-Code extension",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mbehr1/dlt-logs-utils.git"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
