@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+## [0.13.6](https://github.com/mbehr1/dlt-logs-utils/compare/v0.13.5...v0.13.6) (2026-02-08)
+
 ## [0.13.5](https://github.com/mbehr1/dlt-logs-utils/compare/v0.13.4...v0.13.5) (2026-02-08)
 
 ## [0.13.4](https://github.com/mbehr1/dlt-logs-utils/compare/v0.13.3...v0.13.4) (2025-07-14)
